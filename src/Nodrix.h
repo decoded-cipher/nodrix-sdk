@@ -78,6 +78,9 @@ class NodrixClass {
   void setCACert(const char* pem) { _ca = pem; _insecure = false; }
   void setFingerprint(const char* fp) { _fingerprint = fp; _insecure = false; }
 
+  // Print connection and protocol activity to Serial (call Serial.begin() first).
+  void setDebug(bool on = true) { _debug = on; }
+
   void _handleWsEvent(WStype_t type, uint8_t* payload, size_t length);
 
  private:
@@ -111,6 +114,7 @@ class NodrixClass {
   bool _insecure = true;
   const char* _ca = nullptr;
   const char* _fingerprint = nullptr;
+  bool _debug = false;
 };
 
 extern NodrixClass Nodrix;

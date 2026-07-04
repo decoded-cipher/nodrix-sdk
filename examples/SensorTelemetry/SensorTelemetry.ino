@@ -7,6 +7,7 @@ unsigned long lastSend = 0;
 
 void setup() {
   Serial.begin(115200);
+  Nodrix.setDebug(true);             // log connection and protocol activity to Serial
   Nodrix.setCACert(NODRIX_ROOT_CA);  // pin TLS; omit for the unvalidated default
   Nodrix.begin(WIFI_SSID, WIFI_PASS, HOST, TOKEN);
 }

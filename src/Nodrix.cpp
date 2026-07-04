@@ -26,11 +26,8 @@ static WiFiMulti wifiMulti;
 static ESP8266WiFiMulti wifiMulti;
 #endif
 
-#ifdef NODRIX_DEBUG
-  #define NODRIX_LOG(...) Serial.printf(__VA_ARGS__)
-#else
-  #define NODRIX_LOG(...)
-#endif
+// Runtime-gated; enable from a sketch with Nodrix.setDebug(true).
+#define NODRIX_LOG(...) do { if (_debug) Serial.printf(__VA_ARGS__); } while (0)
 
 static const int MAX_POINTS = 200;
 static const int MAX_KEY_LEN = 64;

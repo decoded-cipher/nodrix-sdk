@@ -165,6 +165,7 @@ leaf, so it must be refreshed on each rotation; prefer a root CA where you can.
 | `setInsecure()` | Skip certificate validation (default) |
 | `setCACert(pem)` | Pin a root CA (ESP32) |
 | `setFingerprint(fp)` | Pin a SHA-1 fingerprint (ESP8266 HTTP) |
+| `setDebug(on)` | Log connection and protocol activity to Serial |
 | `NODRIX_WRITE("var") { ... }` | Handle a cloud write; `value` is in scope |
 
 ## Examples
@@ -177,4 +178,5 @@ leaf, so it must be refreshed on each rotation; prefer a root CA where you can.
 
 ## Debug logging
 
-Build with `-DNODRIX_DEBUG` to print connection and protocol activity to Serial.
+Call `Nodrix.setDebug(true)` before `begin()` to print connection and protocol
+activity to Serial (call `Serial.begin()` first).

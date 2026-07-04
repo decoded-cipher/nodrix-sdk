@@ -16,5 +16,6 @@ First release.
 - Optional TLS pinning — `setCACert()` (ESP32) and `setFingerprint()` (ESP8266
   HTTP); unvalidated `setInsecure()` by default.
 - Server-side events via `event()`.
+- Runtime debug logging via `setDebug()`.
 - Examples: LedControl, HomeLights, MultiWiFi, SensorTelemetry, DeepSleepSensor.
 - Supports ESP32 (including S2, S3, C3, C6, H2) and ESP8266.

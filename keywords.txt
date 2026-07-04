@@ -19,6 +19,7 @@ connected	KEYWORD2
 setInsecure	KEYWORD2
 setCACert	KEYWORD2
 setFingerprint	KEYWORD2
+setDebug	KEYWORD2
 
 asBool	KEYWORD2
 asInt	KEYWORD2
