@@ -41,7 +41,13 @@ lib_deps =
   https://github.com/decoded-cipher/nodrix-sdk.git
 ```
 
-Boards: ESP32 and ESP8266.
+## Boards
+
+Any **ESP32** (including S2, S3, C3, C6, H2) or **ESP8266** board — e.g. XIAO
+ESP32-C3/S3, Arduino Nano ESP32, ESP32 Seeed boards, NodeMCU, Wemos D1 mini.
+
+Boards that reach WiFi through a coprocessor (Pico W, UNO R4 WiFi, WiFiNINA) and
+cellular modules (A9G, SIM7000) are not supported yet.
 
 ## Configuration
 
