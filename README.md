@@ -1,4 +1,4 @@
-# Nodrix
+# Nodrix Arduino Library
 
 Arduino library for connecting ESP32 / ESP8266 hardware to
 [Nodrix](https://nodrix.live). It hides WiFi, TLS, the WebSocket/HTTP transport,
