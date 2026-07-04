@@ -43,17 +43,19 @@ lib_deps =
 
 Boards: ESP32 and ESP8266.
 
-## Setup
+## Configuration
 
-Create `secret.h` next to your sketch:
+Put your WiFi and Nodrix credentials at the top of the sketch:
 
 ```cpp
-#pragma once
 #define WIFI_SSID "your-wifi"
 #define WIFI_PASS "your-password"
-#define HOST      "yourproject.workers.dev"   // your Nodrix host, no https://
+#define HOST      "yourproject.workers.dev"   // Nodrix host, no https://
 #define TOKEN     "your-project-token"         // Settings -> Tokens
 ```
+
+Or keep them in a `secret.h` next to the sketch and `#include "secret.h"` — the
+LedControl and SensorTelemetry examples do this.
 
 ## Receiving control
 
@@ -109,9 +111,9 @@ pin, call one before `begin()`:
 
 ## Examples
 
-- **LedControl** — toggle the on-board LED.
+- **LedControl** — toggle the on-board LED (`secret.h`).
 - **HomeLights** — two independently controlled lights/relays.
-- **SensorTelemetry** — periodic sensor readings over the socket.
+- **SensorTelemetry** — periodic readings over a cert-pinned socket (`secret.h` holds the CA).
 - **DeepSleepSensor** — HTTP mode: wake, report, apply control, deep sleep.
 
 ## Debug logging

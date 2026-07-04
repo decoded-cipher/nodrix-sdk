@@ -5,8 +5,6 @@
 #include <ArduinoJson.h>
 #include <WebSocketsClient.h>
 
-// A control value coming down from the cloud. The wire value may be a bool,
-// number or string depending on the widget, so everything is coerced.
 class NodrixValue {
  public:
   explicit NodrixValue(JsonVariantConst v) : _v(v) {}
@@ -24,8 +22,7 @@ class NodrixValue {
 
 typedef void (*NodrixWriteFn)(NodrixValue value);
 
-// One NODRIX_WRITE handler. Constructs itself into a global list before setup()
-// runs, so no registration call is needed in the sketch.
+// Self-registers into a global list before setup() runs.
 struct NodrixHandlerReg {
   const char* variable;
   NodrixWriteFn fn;
@@ -36,25 +33,25 @@ struct NodrixHandlerReg {
 #define NODRIX_CONCAT_(a, b) a##b
 #define NODRIX_CONCAT(a, b) NODRIX_CONCAT_(a, b)
 
-#define NODRIX_WRITE_IMPL(var, fn, reg)         \
-  static void fn(NodrixValue value);            \
-  static NodrixHandlerReg reg(var, fn);         \
+#define NODRIX_WRITE_IMPL(var, fn, reg) \
+  static void fn(NodrixValue value);    \
+  static NodrixHandlerReg reg(var, fn); \
   static void fn(NodrixValue value)
 
-// NODRIX_WRITE("led") { ... value ... } — runs when the cloud writes that variable.
-#define NODRIX_WRITE(var)                                   \
+// NODRIX_WRITE("var") { ... value ... } runs when the cloud writes that variable.
+#define NODRIX_WRITE(var)                                       \
   NODRIX_WRITE_IMPL(var, NODRIX_CONCAT(nodrix_fn_, __COUNTER__), \
                     NODRIX_CONCAT(nodrix_reg_, __COUNTER__))
 
 class NodrixClass {
  public:
-  // Always-on: control + telemetry share one WebSocket. Blocks until WiFi is up.
+  // Always-on WebSocket. Blocks until WiFi connects.
   void begin(const char* ssid, const char* pass, const char* host, const char* token, uint16_t port = 443);
-  // Battery/deep-sleep: telemetry over HTTP POST, control fetched by poll().
+  // HTTP mode for battery / deep-sleep nodes.
   void beginHTTP(const char* ssid, const char* pass, const char* host, const char* token, uint16_t port = 443);
 
-  void run();    // WS mode: pump the socket + flush telemetry. Call in loop().
-  bool poll();   // HTTP mode: flush telemetry, fetch + apply control, ack. Call on wake.
+  void run();   // WS: call every loop()
+  bool poll();  // HTTP: call on wake
 
   void send(const char* variable, bool value);
   void send(const char* variable, int value);
@@ -63,7 +60,7 @@ class NodrixClass {
   void send(const char* variable, double value);
   void send(const char* variable, const char* value);
   void send(const char* variable, const String& value);
-  void flush();  // transmit staged telemetry now
+  void flush();
 
   void event(const char* name);
   void event(const char* name, JsonVariantConst payload);
@@ -72,13 +69,11 @@ class NodrixClass {
   void onDisconnect(void (*cb)()) { _onDisconnect = cb; }
   bool connected() const { return _connected; }
 
-  // TLS. Default is no cert validation (matches a bare beginSSL). Opt into
-  // pinning with one of these before begin()/beginHTTP().
+  // TLS is unvalidated by default. Pin with one of these before begin().
   void setInsecure() { _insecure = true; _ca = nullptr; _fingerprint = nullptr; }
   void setCACert(const char* pem) { _ca = pem; _insecure = false; }
   void setFingerprint(const char* fp) { _fingerprint = fp; _insecure = false; }
 
-  // Internal: forwarded from the WebSocket event callback.
   void _handleWsEvent(WStype_t type, uint8_t* payload, size_t length);
 
  private:
@@ -102,8 +97,8 @@ class NodrixClass {
   bool _wsMode = false;
   bool _connected = false;
 
-  JsonDocument _tx;          // staged telemetry metrics (key -> value)
-  JsonDocument _ctrlState;   // last echoed value per control var, for reseed
+  JsonDocument _tx;
+  JsonDocument _ctrlState;  // last value per control var, for reseed on reconnect
 
   void (*_onConnect)() = nullptr;
   void (*_onDisconnect)() = nullptr;

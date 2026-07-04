@@ -1,12 +1,15 @@
-// Two-light home automation node. Bind two toggle widgets to the variables
-// "light_living" and "light_bedroom" on the dashboard.
+// Two lights driven by Nodrix toggle widgets bound to "light_living" and "light_bedroom".
 #include <Nodrix.h>
-#include "secret.h"
+
+#define WIFI_SSID "your-wifi"
+#define WIFI_PASS "your-password"
+#define HOST      "yourproject.workers.dev"
+#define TOKEN     "your-project-token"
 
 const int LIGHT_LIVING = 16;
 const int LIGHT_BEDROOM = 17;
 
-// Many relay boards are active-LOW (LOW = on) — swap these if yours is.
+// Relay boards are often active-LOW; swap these if yours is.
 const int LIGHT_ON = HIGH;
 const int LIGHT_OFF = LOW;
 

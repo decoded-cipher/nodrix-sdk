@@ -28,8 +28,7 @@ static const int MAX_POINTS = 200;
 static const int MAX_KEY_LEN = 64;
 static const int MAX_STRING_VALUE = 512;
 
-// Handler registry. The head lives in a function-local static so it's valid
-// before any NODRIX_WRITE global constructor runs (no static-init-order issue).
+// Registry head in a function-local static so it's valid during static init.
 static NodrixHandlerReg*& registryHead() {
   static NodrixHandlerReg* head = nullptr;
   return head;
@@ -41,8 +40,6 @@ NodrixHandlerReg::NodrixHandlerReg(const char* v, NodrixWriteFn f)
   next = head;
   head = this;
 }
-
-// ---- NodrixValue -----------------------------------------------------------
 
 bool NodrixValue::asBool() const {
   if (_v.is<bool>()) return _v.as<bool>();
@@ -72,8 +69,6 @@ String NodrixValue::asString() const {
   serializeJson(_v, s);
   return s;
 }
-
-// ---- NodrixClass -----------------------------------------------------------
 
 NodrixClass Nodrix;
 
