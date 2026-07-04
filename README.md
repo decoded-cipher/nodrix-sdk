@@ -121,10 +121,13 @@ Nodrix.event("door_opened");
 ## TLS
 
 By default certificates are not validated — the simplest path to get running. To
-pin, call one before `begin()`:
+pin a certificate, call one before `begin()`:
 
-- `Nodrix.setCACert(pem)` — ESP32 (CA) / ESP32+ESP8266 for HTTP.
-- `Nodrix.setFingerprint(fp)` — ESP8266 SHA-1 fingerprint.
+- `Nodrix.setCACert(pem)` — ESP32, WebSocket and HTTP.
+- `Nodrix.setFingerprint(fp)` — ESP8266 HTTP mode (SHA-1 fingerprint).
+
+On ESP8266 the WebSocket transport is always unvalidated; use ESP32 for a pinned
+WebSocket, or ESP8266 HTTP mode with a fingerprint.
 
 ## Examples
 

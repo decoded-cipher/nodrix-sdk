@@ -106,8 +106,8 @@ void NodrixClass::begin(const char* host, const char* token, uint16_t port) {
   else if (_fingerprint) _ws.beginSSL(_host.c_str(), _port, _wsPath.c_str(), _fingerprint);
   else _ws.beginSSL(_host.c_str(), _port, _wsPath.c_str());
 #else
-  if (_fingerprint) _ws.beginSSL(_host.c_str(), _port, _wsPath.c_str(), _fingerprint);
-  else _ws.beginSSL(_host.c_str(), _port, _wsPath.c_str());
+  // ESP8266 WebSocket TLS is unvalidated; fingerprint/CA pinning is HTTP-only there.
+  _ws.beginSSL(_host.c_str(), _port, _wsPath.c_str());
 #endif
   _ws.setReconnectInterval(5000);
   _ws.enableHeartbeat(15000, 3000, 2);

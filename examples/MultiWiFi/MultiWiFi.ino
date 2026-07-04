@@ -2,16 +2,18 @@
 // with automatic failover between them.
 #include <Nodrix.h>
 
+const int LED_PIN = 2;
+
 #define HOST  "yourproject.workers.dev"
 #define TOKEN "your-project-token"
 
 NODRIX_WRITE("led") {
-  digitalWrite(LED_BUILTIN, value.asBool() ? HIGH : LOW);
+  digitalWrite(LED_PIN, value.asBool() ? HIGH : LOW);
   Nodrix.send("led", value.asBool());
 }
 
 void setup() {
-  pinMode(LED_BUILTIN, OUTPUT);
+  pinMode(LED_PIN, OUTPUT);
   Nodrix.addAP("home-ssid", "home-pass");
   Nodrix.addAP("office-ssid", "office-pass");
   Nodrix.begin(HOST, TOKEN);  // no ssid/pass — uses the networks above
