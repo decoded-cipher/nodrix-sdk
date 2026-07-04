@@ -126,6 +126,13 @@ pin a certificate, call one before `begin()`:
 - `Nodrix.setCACert(pem)` — ESP32, WebSocket and HTTP.
 - `Nodrix.setFingerprint(fp)` — ESP8266 HTTP mode (SHA-1 fingerprint).
 
+Fetch the root CA for your host and paste the last certificate block into `secret.h`:
+
+```sh
+openssl s_client -showcerts -servername yourproject.workers.dev \
+  -connect yourproject.workers.dev:443 </dev/null
+```
+
 On ESP8266 the WebSocket transport is always unvalidated; use ESP32 for a pinned
 WebSocket, or ESP8266 HTTP mode with a fingerprint.
 
