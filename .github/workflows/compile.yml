@@ -4,15 +4,18 @@ on: [push, pull_request]
 
 jobs:
   build:
+    name: ${{ matrix.name }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
         include:
-          - fqbn: esp32:esp32:esp32
+          - name: ESP32
+            fqbn: esp32:esp32:esp32
             platform_name: esp32:esp32
             platform_url: https://espressif.github.io/arduino-esp32/package_esp32_index.json
-          - fqbn: esp8266:esp8266:nodemcuv2
+          - name: ESP8266
+            fqbn: esp8266:esp8266:nodemcuv2
             platform_name: esp8266:esp8266
             platform_url: https://arduino.esp8266.com/stable/package_esp8266com_index.json
     steps:
