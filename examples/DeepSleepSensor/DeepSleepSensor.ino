@@ -1,5 +1,8 @@
 // Battery node: wake, report over HTTP, apply pending control, sleep.
 #include <Nodrix.h>
+#if defined(ESP32)
+  #include <esp_sleep.h>
+#endif
 
 #define WIFI_SSID "your-wifi"
 #define WIFI_PASS "your-password"
@@ -16,8 +19,12 @@ void setup() {
   Nodrix.flush();
   Nodrix.poll();
 
-  // ESP8266: wire GPIO16 to RST to wake.
-  ESP.deepSleep((uint64_t)SLEEP_SECONDS * 1000000ULL);
+#if defined(ESP32)
+  esp_sleep_enable_timer_wakeup((uint64_t)SLEEP_SECONDS * 1000000ULL);
+  esp_deep_sleep_start();
+#else
+  ESP.deepSleep((uint64_t)SLEEP_SECONDS * 1000000ULL);  // wire GPIO16 to RST to wake
+#endif
 }
 
 void loop() {}
