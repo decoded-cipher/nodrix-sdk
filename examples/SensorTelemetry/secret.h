@@ -3,9 +3,9 @@
 #define HOST      "yourproject.workers.dev"
 #define TOKEN     "your-project-token"
 
-// Root CA (PEM) for your host — fetch it with openssl (see README > TLS).
+// Root CA to pin (optional; see README > TLS).
 const char* NODRIX_ROOT_CA = R"CERT(
 -----BEGIN CERTIFICATE-----
-...paste the root CA here...
+...paste your host's root CA here...
 -----END CERTIFICATE-----
 )CERT";
