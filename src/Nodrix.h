@@ -22,7 +22,6 @@ class NodrixValue {
 
 typedef void (*NodrixWriteFn)(NodrixValue value);
 
-// Self-registers into a global list before setup() runs.
 struct NodrixHandlerReg {
   const char* variable;
   NodrixWriteFn fn;
@@ -45,10 +44,15 @@ struct NodrixHandlerReg {
 
 class NodrixClass {
  public:
+  // Register a WiFi network before begin(); the strongest reachable one wins.
+  void addAP(const char* ssid, const char* pass);
+
   // Always-on WebSocket. Blocks until WiFi connects.
   void begin(const char* ssid, const char* pass, const char* host, const char* token, uint16_t port = 443);
+  void begin(const char* host, const char* token, uint16_t port = 443);
   // HTTP mode for battery / deep-sleep nodes.
   void beginHTTP(const char* ssid, const char* pass, const char* host, const char* token, uint16_t port = 443);
+  void beginHTTP(const char* host, const char* token, uint16_t port = 443);
 
   void run();   // WS: call every loop()
   bool poll();  // HTTP: call on wake
@@ -77,7 +81,7 @@ class NodrixClass {
   void _handleWsEvent(WStype_t type, uint8_t* payload, size_t length);
 
  private:
-  void connectWiFi(const char* ssid, const char* pass);
+  void connectWiFi();
   void onConnected();
   void dispatchControl(const char* variable, JsonVariantConst value);
   void seedControlVars();
@@ -96,9 +100,10 @@ class NodrixClass {
   uint16_t _port = 443;
   bool _wsMode = false;
   bool _connected = false;
+  bool _hasAP = false;
 
   JsonDocument _tx;
-  JsonDocument _ctrlState;  // last value per control var, for reseed on reconnect
+  JsonDocument _ctrlState;
 
   void (*_onConnect)() = nullptr;
   void (*_onDisconnect)() = nullptr;

@@ -33,5 +33,6 @@ jobs:
           sketch-paths: |
             - examples/LedControl
             - examples/HomeLights
+            - examples/MultiWiFi
             - examples/SensorTelemetry
             - examples/DeepSleepSensor

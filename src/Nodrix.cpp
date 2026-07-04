@@ -4,6 +4,7 @@
   #include <WiFi.h>
   #include <WiFiClientSecure.h>
   #include <HTTPClient.h>
+  #include <WiFiMulti.h>
   #define NODRIX_MAKE_TLS(client)                                   \
     WiFiClientSecure client;                                        \
     do { if (_ca) client.setCACert(_ca); else client.setInsecure(); } while (0)
@@ -11,11 +12,18 @@
   #include <ESP8266WiFi.h>
   #include <WiFiClientSecureBearSSL.h>
   #include <ESP8266HTTPClient.h>
+  #include <ESP8266WiFiMulti.h>
   #define NODRIX_MAKE_TLS(client)                                   \
     BearSSL::WiFiClientSecure client;                               \
     do { if (_fingerprint) client.setFingerprint(_fingerprint); else client.setInsecure(); } while (0)
 #else
   #error "Nodrix supports ESP32 and ESP8266"
+#endif
+
+#if defined(ESP32)
+static WiFiMulti wifiMulti;
+#elif defined(ESP8266)
+static ESP8266WiFiMulti wifiMulti;
 #endif
 
 #ifdef NODRIX_DEBUG
@@ -72,15 +80,25 @@ String NodrixValue::asString() const {
 
 NodrixClass Nodrix;
 
+void NodrixClass::addAP(const char* ssid, const char* pass) {
+  wifiMulti.addAP(ssid, pass);
+  _hasAP = true;
+}
+
 void NodrixClass::begin(const char* ssid, const char* pass, const char* host,
                         const char* token, uint16_t port) {
+  addAP(ssid, pass);
+  begin(host, token, port);
+}
+
+void NodrixClass::begin(const char* host, const char* token, uint16_t port) {
   _host = host;
   _token = token;
   _port = port;
   _wsMode = true;
   _wsPath = "/v1/control/ws?token=" + _token;
 
-  connectWiFi(ssid, pass);
+  connectWiFi();
 
   _ws.onEvent([](WStype_t t, uint8_t* p, size_t l) { Nodrix._handleWsEvent(t, p, l); });
 #if defined(ESP32)
@@ -97,22 +115,30 @@ void NodrixClass::begin(const char* ssid, const char* pass, const char* host,
 
 void NodrixClass::beginHTTP(const char* ssid, const char* pass, const char* host,
                             const char* token, uint16_t port) {
+  addAP(ssid, pass);
+  beginHTTP(host, token, port);
+}
+
+void NodrixClass::beginHTTP(const char* host, const char* token, uint16_t port) {
   _host = host;
   _token = token;
   _port = port;
   _wsMode = false;
 
-  connectWiFi(ssid, pass);
+  connectWiFi();
   _connected = (WiFi.status() == WL_CONNECTED);
   seedControlVars();
   flush();
 }
 
-void NodrixClass::connectWiFi(const char* ssid, const char* pass) {
+void NodrixClass::connectWiFi() {
   if (WiFi.status() == WL_CONNECTED) return;
+  if (!_hasAP) {
+    NODRIX_LOG("[nodrix] no wifi network set (call addAP)\n");
+    return;
+  }
   WiFi.mode(WIFI_STA);
-  WiFi.begin(ssid, pass);
-  while (WiFi.status() != WL_CONNECTED) {
+  while (wifiMulti.run() != WL_CONNECTED) {
     delay(300);
     NODRIX_LOG(".");
   }
@@ -121,12 +147,14 @@ void NodrixClass::connectWiFi(const char* ssid, const char* pass) {
 
 void NodrixClass::run() {
   if (!_wsMode) return;
+  if (WiFi.status() != WL_CONNECTED) wifiMulti.run();
   _ws.loop();
   flush();
 }
 
 bool NodrixClass::poll() {
   if (_wsMode) return false;
+  if (WiFi.status() != WL_CONNECTED) wifiMulti.run();
   flush();
 
   String body;

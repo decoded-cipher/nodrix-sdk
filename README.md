@@ -63,6 +63,17 @@ Put your WiFi and Nodrix credentials at the top of the sketch:
 Or keep them in a `secret.h` next to the sketch and `#include "secret.h"` — the
 LedControl and SensorTelemetry examples do this.
 
+### Multiple networks
+
+Register fallbacks with `addAP()` before `begin()`. The strongest reachable
+network is used, and the device fails over between them:
+
+```cpp
+Nodrix.addAP("home-ssid", "home-pass");
+Nodrix.addAP("office-ssid", "office-pass");
+Nodrix.begin(HOST, TOKEN);   // no ssid/pass — uses the list above
+```
+
 ## Receiving control
 
 `NODRIX_WRITE("var") { ... }` registers a handler for a variable. When a
@@ -119,6 +130,7 @@ pin, call one before `begin()`:
 
 - **LedControl** — toggle the on-board LED (`secret.h`).
 - **HomeLights** — two independently controlled lights/relays.
+- **MultiWiFi** — connect through several WiFi networks with failover.
 - **SensorTelemetry** — periodic readings over a cert-pinned socket (`secret.h` holds the CA).
 - **DeepSleepSensor** — HTTP mode: wake, report, apply control, deep sleep.
 
