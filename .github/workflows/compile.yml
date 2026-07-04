@@ -30,6 +30,8 @@ jobs:
           libraries: |
             - name: ArduinoJson
             - name: WebSockets
+            - name: DHT sensor library
+            - name: Adafruit Unified Sensor
             - source-path: ./
           sketch-paths: |
             - examples/LedControl

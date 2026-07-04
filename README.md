@@ -173,8 +173,11 @@ leaf, so it must be refreshed on each rotation; prefer a root CA where you can.
 - **LedControl** — toggle the on-board LED (`secret.h`).
 - **HomeLights** — two independently controlled lights/relays.
 - **MultiWiFi** — connect through several WiFi networks with failover.
-- **SensorTelemetry** — periodic readings over a cert-pinned socket (`secret.h` holds the CA).
-- **DeepSleepSensor** — HTTP mode: wake, report, apply control, deep sleep.
+- **SensorTelemetry** — DHT11 temperature/humidity over a cert-pinned socket (`secret.h` holds the CA).
+- **DeepSleepSensor** — HTTP mode: read a DHT11, report, apply control, deep sleep.
+
+`SensorTelemetry` and `DeepSleepSensor` read a DHT11 — install the **DHT sensor
+library** by Adafruit from the Library Manager.
 
 ## Debug logging
 
