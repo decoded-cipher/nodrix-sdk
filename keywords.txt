@@ -1,0 +1,27 @@
+# Nodrix
+
+Nodrix	KEYWORD1
+NodrixValue	KEYWORD1
+NodrixClass	KEYWORD1
+NODRIX_WRITE	KEYWORD2
+
+begin	KEYWORD2
+beginHTTP	KEYWORD2
+run	KEYWORD2
+poll	KEYWORD2
+send	KEYWORD2
+flush	KEYWORD2
+event	KEYWORD2
+onConnect	KEYWORD2
+onDisconnect	KEYWORD2
+connected	KEYWORD2
+setInsecure	KEYWORD2
+setCACert	KEYWORD2
+setFingerprint	KEYWORD2
+
+asBool	KEYWORD2
+asInt	KEYWORD2
+asLong	KEYWORD2
+asFloat	KEYWORD2
+asString	KEYWORD2
+isNull	KEYWORD2
