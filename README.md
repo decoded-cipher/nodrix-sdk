@@ -1,20 +1,23 @@
 # Nodrix
 
-Connect ESP32 / ESP8266 hardware to [Nodrix](https://nodrix.live) in a few lines.
-The library hides WiFi, TLS, the WebSocket/HTTP transport, JSON, and the
-control/telemetry protocol — you write device logic, not plumbing.
+Arduino library for connecting ESP32 / ESP8266 hardware to
+[Nodrix](https://nodrix.live). It hides WiFi, TLS, the WebSocket/HTTP transport,
+JSON, and the control/telemetry protocol behind a small API — you write device
+logic, not plumbing.
 
 ```cpp
 #include <Nodrix.h>
 #include "secret.h"
 
-NODRIX_WRITE("led") {                        // cloud writes "led" -> this runs
-  digitalWrite(LED_BUILTIN, value.asBool());
-  Nodrix.send("led", value.asBool());        // report state back
+const int LED_PIN = 2;
+
+NODRIX_WRITE("led") {                          // cloud writes "led" -> this runs
+  digitalWrite(LED_PIN, value.asBool() ? HIGH : LOW);
+  Nodrix.send("led", value.asBool());          // report state back
 }
 
 void setup() {
-  pinMode(LED_BUILTIN, OUTPUT);
+  pinMode(LED_PIN, OUTPUT);
   Nodrix.begin(WIFI_SSID, WIFI_PASS, HOST, TOKEN);
 }
 
@@ -23,16 +26,15 @@ void loop() {
 }
 ```
 
-## Install
+## Installation
 
-Requires two libraries — install them from the Library Manager (or they resolve
-automatically in PlatformIO):
+**Arduino IDE** — install these from the Library Manager, then add this library
+(Library Manager, or drop the folder into `Arduino/libraries/`):
 
-- **ArduinoJson** (v7)
-- **WebSockets** by Markus Sattler
+- ArduinoJson (v7)
+- WebSockets by Markus Sattler
 
-Then add this library (Arduino Library Manager, or drop the folder into
-`Arduino/libraries/`). PlatformIO:
+**PlatformIO** — add to `platformio.ini`:
 
 ```ini
 lib_deps =
@@ -41,10 +43,10 @@ lib_deps =
   https://github.com/decoded-cipher/nodrix-sdk.git
 ```
 
-## Boards
+## Supported boards
 
 Any **ESP32** (including S2, S3, C3, C6, H2) or **ESP8266** board — e.g. XIAO
-ESP32-C3/S3, Arduino Nano ESP32, ESP32 Seeed boards, NodeMCU, Wemos D1 mini.
+ESP32-C3/S3, Arduino Nano ESP32, Seeed ESP32 boards, NodeMCU, Wemos D1 mini.
 
 Boards that reach WiFi through a coprocessor (Pico W, UNO R4 WiFi, WiFiNINA) and
 cellular modules (A9G, SIM7000) are not supported yet.
@@ -61,7 +63,7 @@ Put your WiFi and Nodrix credentials at the top of the sketch:
 ```
 
 Or keep them in a `secret.h` next to the sketch and `#include "secret.h"` — the
-LedControl and SensorTelemetry examples do this.
+`LedControl` and `SensorTelemetry` examples do this.
 
 ### Multiple networks
 
@@ -88,8 +90,8 @@ runs with `value` in scope. Values are coerced for you:
 | `value.asString()` | string |
 | `value.isNull()` | no value |
 
-Acks are automatic. Handlers may run more than once for the same command across a
-reconnect, so keep them idempotent (setting a pin is).
+Acks are automatic. A handler may run more than once for the same command across
+a reconnect, so keep it idempotent (setting a pin is).
 
 ## Sending telemetry
 
@@ -103,13 +105,6 @@ Calls stage a metric and coalesce into a single frame on the next `run()`
 (WebSocket) or `flush()`/`poll()` (HTTP). Overloads cover `bool`, `int`, `long`,
 `float`, `double`, `const char*`, and `String`.
 
-## Transports
-
-- **WebSocket (`begin`)** — always-on. Control arrives instantly; call
-  `Nodrix.run()` every `loop()`. Best for lights, relays, anything cloud-driven.
-- **HTTP (`beginHTTP`)** — for battery / deep-sleep nodes. `send()` + `flush()`
-  to POST readings, `poll()` to fetch and apply pending control, then sleep.
-
 ## Events
 
 Fire a named event to trigger a server-side automation:
@@ -117,6 +112,13 @@ Fire a named event to trigger a server-side automation:
 ```cpp
 Nodrix.event("door_opened");
 ```
+
+## Transports
+
+- **WebSocket — `begin()`** — always-on. Control arrives instantly; call
+  `Nodrix.run()` every `loop()`. Best for lights, relays, anything cloud-driven.
+- **HTTP — `beginHTTP()`** — for battery / deep-sleep nodes. `send()` + `flush()`
+  to POST readings, `poll()` to fetch and apply pending control, then sleep.
 
 ## TLS
 
@@ -126,7 +128,8 @@ pin a certificate, call one before `begin()`:
 - `Nodrix.setCACert(pem)` — ESP32, WebSocket and HTTP.
 - `Nodrix.setFingerprint(fp)` — ESP8266 HTTP mode (SHA-1 fingerprint).
 
-Fetch the root CA for your host and paste the last certificate block into `secret.h`:
+Fetch the root CA for your host and paste the last certificate block into
+`secret.h`:
 
 ```sh
 openssl s_client -showcerts -servername yourproject.workers.dev \
@@ -135,6 +138,27 @@ openssl s_client -showcerts -servername yourproject.workers.dev \
 
 On ESP8266 the WebSocket transport is always unvalidated; use ESP32 for a pinned
 WebSocket, or ESP8266 HTTP mode with a fingerprint.
+
+## API reference
+
+| | |
+| --- | --- |
+| `addAP(ssid, pass)` | Register a WiFi network before `begin()` |
+| `begin(ssid, pass, host, token[, port])` | Connect over WebSocket |
+| `begin(host, token[, port])` | WebSocket, using the `addAP()` networks |
+| `beginHTTP(ssid, pass, host, token[, port])` | HTTP mode |
+| `beginHTTP(host, token[, port])` | HTTP mode, using the `addAP()` networks |
+| `run()` | WebSocket: pump the socket and flush telemetry; call every `loop()` |
+| `poll()` | HTTP: send readings, fetch and apply control; call on wake |
+| `send(var, value)` | Stage a metric (`bool`/`int`/`long`/`float`/`double`/`const char*`/`String`) |
+| `flush()` | Transmit staged metrics now |
+| `event(name)` / `event(name, payload)` | Fire a server-side event |
+| `connected()` | Whether the link is up |
+| `onConnect(cb)` / `onDisconnect(cb)` | Connection callbacks |
+| `setInsecure()` | Skip certificate validation (default) |
+| `setCACert(pem)` | Pin a root CA (ESP32) |
+| `setFingerprint(fp)` | Pin a SHA-1 fingerprint (ESP8266 HTTP) |
+| `NODRIX_WRITE("var") { ... }` | Handle a cloud write; `value` is in scope |
 
 ## Examples
 
@@ -147,7 +171,3 @@ WebSocket, or ESP8266 HTTP mode with a fingerprint.
 ## Debug logging
 
 Build with `-DNODRIX_DEBUG` to print connection and protocol activity to Serial.
-
-## License
-
-MIT
