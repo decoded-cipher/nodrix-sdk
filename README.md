@@ -43,6 +43,14 @@ lib_deps =
   https://github.com/decoded-cipher/nodrix-sdk.git
 ```
 
+**ESP-IDF** — from the
+[ESP Component Registry](https://components.espressif.com/components/decoded-cipher/nodrix),
+in a project that uses arduino-esp32 as a component:
+
+```
+idf.py add-dependency "decoded-cipher/nodrix"
+```
+
 ## Supported boards
 
 Any **ESP32** (including S2, S3, C3, C6, H2) or **ESP8266** board — e.g. XIAO
