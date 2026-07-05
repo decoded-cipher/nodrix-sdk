@@ -1,0 +1,26 @@
+version: "0.1.0"
+description: "Connect ESP32 hardware to Nodrix in a few lines — NODRIX_WRITE control handlers with typed values, one-call telemetry, WebSocket and HTTP transports, at-least-once delivery, and optional TLS pinning."
+url: "https://nodrix.live/products/arduino-library"
+repository: "https://github.com/decoded-cipher/nodrix-sdk.git"
+documentation: "https://nodrix.live/products/arduino-library"
+issues: "https://github.com/decoded-cipher/nodrix-sdk/issues"
+license: "MIT"
+maintainers:
+  - "Arjun Krishna <arjun12345krishna@gmail.com>"
+tags:
+  - nodrix
+  - iot
+  - websocket
+  - telemetry
+  - home-automation
+  - arduino
+targets:
+  - esp32
+  - esp32s2
+  - esp32s3
+  - esp32c3
+  - esp32c6
+  - esp32h2
+files:
+  exclude:
+    - ".github/**/*"
