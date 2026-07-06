@@ -28,24 +28,23 @@ void loop() {
 
 ## Installation
 
-**Arduino IDE** — install these from the Library Manager, then add this library
-(Library Manager, or drop the folder into `Arduino/libraries/`):
+Nodrix is published on the three official registries — the
+[Arduino Library Manager](https://docs.arduino.cc/libraries/nodrix/), the
+[PlatformIO Registry](https://registry.platformio.org/libraries/decoded-cipher/Nodrix),
+and the [ESP Component Registry](https://components.espressif.com/components/decoded-cipher/nodrix) —
+so it installs from whichever toolchain you use, and its dependencies come with it.
 
-- ArduinoJson (v7)
-- WebSockets by Markus Sattler
+**Arduino IDE** — open **Tools → Manage Libraries**, search **Nodrix**, and install.
+Accept the prompt to pull in its dependencies (ArduinoJson and WebSockets by Markus
+Sattler).
 
-**PlatformIO** — add to `platformio.ini`:
+**PlatformIO** — add to `platformio.ini`; dependencies resolve automatically:
 
 ```ini
-lib_deps =
-  bblanchon/ArduinoJson@^7
-  links2004/WebSockets@^2.6
-  https://github.com/decoded-cipher/nodrix-sdk.git
+lib_deps = decoded-cipher/Nodrix
 ```
 
-**ESP-IDF** — from the
-[ESP Component Registry](https://components.espressif.com/components/decoded-cipher/nodrix),
-in a project that uses arduino-esp32 as a component:
+**ESP-IDF** — in a project that uses arduino-esp32 as a component:
 
 ```
 idf.py add-dependency "decoded-cipher/nodrix"
@@ -90,7 +89,7 @@ Nodrix.begin(HOST, TOKEN);   // no ssid/pass — uses the list above
 dashboard widget (toggle, slider, button, color) writes that variable, the block
 runs with `value` in scope. Values are coerced for you:
 
-| method | returns |
+| Method | Returns |
 | --- | --- |
 | `value.asBool()` | `true` for `true`, non-zero, or `"on"`/`"1"`/`"true"`/`"yes"` |
 | `value.asInt()` / `asLong()` | integer (parses numeric strings) |
@@ -156,7 +155,7 @@ leaf, so it must be refreshed on each rotation; prefer a root CA where you can.
 
 ## API reference
 
-| | |
+| Method | Description |
 | --- | --- |
 | `addAP(ssid, pass)` | Register a WiFi network before `begin()` |
 | `begin(ssid, pass, host, token[, port])` | Connect over WebSocket |
@@ -191,3 +190,7 @@ library** by Adafruit from the Library Manager.
 
 Call `Nodrix.setDebug(true)` before `begin()` to print connection and protocol
 activity to Serial (call `Serial.begin()` first).
+
+## License
+
+MIT — see [LICENSE](LICENSE). © 2026 Arjun Krishna.
