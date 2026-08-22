@@ -9,6 +9,9 @@ jobs:
   build:
     name: ${{ matrix.name }}
     runs-on: ubuntu-latest
+    # The default token is read-only, so attaching assets 403s without this.
+    permissions:
+      contents: write
     strategy:
       fail-fast: false
       matrix:
