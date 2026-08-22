@@ -183,13 +183,20 @@ void NodrixClass::_handleWsEvent(WStype_t type, uint8_t* payload, size_t length)
   switch (type) {
     case WStype_CONNECTED:
       _connected = true;
+      _everConnected = true;
       NODRIX_LOG("[nodrix] connected\n");
       onConnected();
       break;
     case WStype_DISCONNECTED:
       _connected = false;
-      NODRIX_LOG("[nodrix] disconnected\n");
+      // A socket that never once opened is a refused handshake, not a dropped
+      // link — almost always a bad token or the wrong host.
+      if (_everConnected) NODRIX_LOG("[nodrix] disconnected\n");
+      else NODRIX_LOG("[nodrix] connect refused - check token and host\n");
       if (_onDisconnect) _onDisconnect();
+      break;
+    case WStype_ERROR:
+      NODRIX_LOG("[nodrix] socket error: %.*s\n", (int)length, (const char*)payload);
       break;
     case WStype_TEXT: {
       JsonDocument doc;
@@ -348,15 +355,32 @@ void NodrixClass::event(const char* name, JsonVariantConst payload) {
   else httpPost("/v1/events", out);
 }
 
+// HTTPClient returns negative codes for transport failures, HTTP status otherwise.
+void NodrixClass::logHttp(const char* method, const char* path, int code) {
+  if (!_debug) return;
+  const char* why = "";
+  if (code < 0) why = " (no connection - check host, DNS or TLS)";
+  else if (code == 401) why = " (token rejected)";
+  else if (code == 403) why = " (token has no access to this project)";
+  else if (code == 404) why = " (no such endpoint - check host)";
+  else if (code == 429) why = " (rate limited)";
+  else if (code >= 500) why = " (server error)";
+  NODRIX_LOG("[nodrix] %s %s -> %d%s\n", method, path, code, why);
+}
+
 int NodrixClass::httpPost(const char* path, const String& body) {
   NODRIX_MAKE_TLS(client);
   HTTPClient http;
   String url = "https://" + _host + ":" + String(_port) + path;
-  if (!http.begin(client, url)) return -1;
+  if (!http.begin(client, url)) {
+    logHttp("POST", path, -1);
+    return -1;
+  }
   http.addHeader("Authorization", "Bearer " + _token);
   http.addHeader("Content-Type", "application/json");
   int code = http.POST(body);
   http.end();
+  if (code != 204 && code != 200) logHttp("POST", path, code);
   return code;
 }
 
@@ -364,10 +388,14 @@ bool NodrixClass::httpGet(const char* path, String& out) {
   NODRIX_MAKE_TLS(client);
   HTTPClient http;
   String url = "https://" + _host + ":" + String(_port) + path;
-  if (!http.begin(client, url)) return false;
+  if (!http.begin(client, url)) {
+    logHttp("GET", path, -1);
+    return false;
+  }
   http.addHeader("Authorization", "Bearer " + _token);
   int code = http.GET();
   if (code == 200) out = http.getString();
   http.end();
+  if (code != 200) logHttp("GET", path, code);
   return code == 200;
 }

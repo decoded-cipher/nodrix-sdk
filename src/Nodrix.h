@@ -94,6 +94,7 @@ class NodrixClass {
 
   int httpPost(const char* path, const String& body);
   bool httpGet(const char* path, String& out);
+  void logHttp(const char* method, const char* path, int code);
 
   WebSocketsClient _ws;
   String _host;
@@ -102,6 +103,7 @@ class NodrixClass {
   uint16_t _port = 443;
   bool _wsMode = false;
   bool _connected = false;
+  bool _everConnected = false;
   bool _hasAP = false;
 
   JsonDocument _tx;
