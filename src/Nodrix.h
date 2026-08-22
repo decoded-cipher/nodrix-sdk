@@ -5,6 +5,13 @@
 #include <ArduinoJson.h>
 #include <WebSocketsClient.h>
 
+// The socket nudge is what makes an update prompt; this is the backstop for a
+// board that is HTTP-only or was offline when the nudge went out. Request volume
+// is fleet size times frequency, so it is deliberately hours rather than minutes.
+#ifndef NODRIX_OTA_POLL_INTERVAL_MS
+#define NODRIX_OTA_POLL_INTERVAL_MS 21600000UL
+#endif
+
 class NodrixValue {
  public:
   explicit NodrixValue(JsonVariantConst v) : _v(v) {}
@@ -102,6 +109,7 @@ class NodrixClass {
   String deviceKey() const;
   void sendHello();
   bool applyUpdate();
+  void serviceUpdates();
   void markRunningImageValid();
 
   int httpPost(const char* path, const String& body);
@@ -128,6 +136,8 @@ class NodrixClass {
   const char* _firmwareVersion = nullptr;
   const char* _chip = nullptr;
   bool _imageConfirmed = false;
+  bool _otaDue = false;
+  unsigned long _lastOtaCheck = 0;
 
   bool _insecure = true;
   const char* _ca = nullptr;

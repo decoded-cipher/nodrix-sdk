@@ -123,6 +123,7 @@ void NodrixClass::beginHTTP(const char* host, const char* token, uint16_t port) 
   _token = token;
   _port = port;
   _wsMode = false;
+  _otaDue = true;
 
   connectWiFi();
   _connected = (WiFi.status() == WL_CONNECTED);
@@ -149,12 +150,14 @@ void NodrixClass::run() {
   if (WiFi.status() != WL_CONNECTED) wifiMulti.run();
   _ws.loop();
   flush();
+  serviceUpdates();
 }
 
 bool NodrixClass::poll() {
   if (_wsMode) return false;
   if (WiFi.status() != WL_CONNECTED) wifiMulti.run();
   flush();
+  serviceUpdates();
 
   String body;
   if (!httpGet("/v1/control", body)) return false;
@@ -213,7 +216,7 @@ void NodrixClass::_handleWsEvent(WStype_t type, uint8_t* payload, size_t length)
           if (id[0]) ackWs(id);
         }
       } else if (strcmp(t, "ota") == 0) {
-        checkForUpdate();
+        _otaDue = true;
       } else if (strcmp(t, "error") == 0) {
         NODRIX_LOG("[nodrix] server error: %s\n", (const char*)(doc["code"] | ""));
       }
@@ -227,6 +230,7 @@ void NodrixClass::_handleWsEvent(WStype_t type, uint8_t* payload, size_t length)
 void NodrixClass::onConnected() {
   sendHello();
   markRunningImageValid();
+  _otaDue = true;
   seedControlVars();
   flush();
   if (_onConnect) _onConnect();
@@ -402,6 +406,8 @@ bool NodrixClass::httpGet(const char* path, String& out) {
   }
   http.addHeader("Authorization", "Bearer " + _token);
   http.addHeader("X-Nodrix-Device", deviceKey());
+  if (_firmwareVersion) http.addHeader("X-Nodrix-Firmware", _firmwareVersion);
+  if (_chip) http.addHeader("X-Nodrix-Chip", _chip);
   int code = http.GET();
   if (code == 200) out = http.getString();
   http.end();
@@ -470,6 +476,18 @@ bool NodrixClass::applyUpdate() {
   delay(100);
   ESP.restart();
   return true;
+}
+
+// applyUpdate() blocks and then restarts, so it runs from the loop rather than
+// from inside the socket callback that asked for it.
+void NodrixClass::serviceUpdates() {
+  if (WiFi.status() != WL_CONNECTED) return;
+  unsigned long now = millis();
+  if (now - _lastOtaCheck >= NODRIX_OTA_POLL_INTERVAL_MS) _otaDue = true;
+  if (!_otaDue) return;
+  _otaDue = false;
+  _lastOtaCheck = now;
+  checkForUpdate();
 }
 
 // Reaching the cloud proves the image works; until this runs, a reset rolls back.
