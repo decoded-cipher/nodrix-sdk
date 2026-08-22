@@ -5,6 +5,13 @@
 #include <ArduinoJson.h>
 #include <WebSocketsClient.h>
 
+// The socket nudge is what makes an update prompt; this is the backstop for a
+// board that is HTTP-only or was offline when the nudge went out. Request volume
+// is fleet size times frequency, so it is deliberately hours rather than minutes.
+#ifndef NODRIX_OTA_POLL_INTERVAL_MS
+#define NODRIX_OTA_POLL_INTERVAL_MS 21600000UL
+#endif
+
 class NodrixValue {
  public:
   explicit NodrixValue(JsonVariantConst v) : _v(v) {}
@@ -80,6 +87,15 @@ class NodrixClass {
 
   void setDebug(bool on = true) { _debug = on; }
 
+  // Key defaults to the MAC. The cloud compares the version to decide whether an
+  // update is due, so a board that never sets one is never reported as updated.
+  // A sketch nodrix compiled already carries its build id — setting a version by
+  // hand there replaces it, and then a finished update never reads as finished.
+  void setDeviceKey(const char* key) { _deviceKey = key; }
+  void setFirmwareVersion(const char* v) { _firmwareVersion = v; }
+  void setChip(const char* c) { _chip = c; }
+  bool checkForUpdate();
+
   void _handleWsEvent(WStype_t type, uint8_t* payload, size_t length);
 
  private:
@@ -92,8 +108,15 @@ class NodrixClass {
   bool validKey(const char* key) const;
   bool ensureRoom();
 
+  String deviceKey() const;
+  void sendHello();
+  bool applyUpdate();
+  void serviceUpdates();
+  void markRunningImageValid();
+
   int httpPost(const char* path, const String& body);
   bool httpGet(const char* path, String& out);
+  void logHttp(const char* method, const char* path, int code);
 
   WebSocketsClient _ws;
   String _host;
@@ -102,6 +125,7 @@ class NodrixClass {
   uint16_t _port = 443;
   bool _wsMode = false;
   bool _connected = false;
+  bool _everConnected = false;
   bool _hasAP = false;
 
   JsonDocument _tx;
@@ -109,6 +133,17 @@ class NodrixClass {
 
   void (*_onConnect)() = nullptr;
   void (*_onDisconnect)() = nullptr;
+
+  const char* _deviceKey = nullptr;
+#ifdef NODRIX_BUILD
+  const char* _firmwareVersion = NODRIX_BUILD;
+#else
+  const char* _firmwareVersion = nullptr;
+#endif
+  const char* _chip = nullptr;
+  bool _imageConfirmed = false;
+  bool _otaDue = false;
+  unsigned long _lastOtaCheck = 0;
 
   bool _insecure = true;
   const char* _ca = nullptr;

@@ -2,6 +2,8 @@ name: Compile Sketches
 
 on:
   workflow_dispatch:
+  release:
+    types: [published]
 
 jobs:
   build:
@@ -12,10 +14,12 @@ jobs:
       matrix:
         include:
           - name: ESP32
+            target: esp32
             fqbn: esp32:esp32:esp32
             platform_name: esp32:esp32
             platform_url: https://espressif.github.io/arduino-esp32/package_esp32_index.json
           - name: ESP8266
+            target: esp8266
             fqbn: esp8266:esp8266:nodemcuv2
             platform_name: esp8266:esp8266
             platform_url: https://arduino.esp8266.com/stable/package_esp8266com_index.json
@@ -33,9 +37,31 @@ jobs:
             - name: DHT sensor library
             - name: Adafruit Unified Sensor
             - source-path: ./
+          enable-warnings-report: false
+          cli-compile-flags: |
+            - --export-binaries
           sketch-paths: |
             - examples/LedControl
             - examples/HomeLights
             - examples/MultiWiFi
             - examples/SensorTelemetry
             - examples/DeepSleepSensor
+
+      # The browser flasher reads these off the release. Names must stay
+      # <Example>-<target>.bin — the catalogue parses them.
+      - name: Collect binaries
+        if: github.event_name == 'release'
+        run: |
+          mkdir -p out
+          for dir in examples/*/; do
+            name=$(basename "$dir")
+            bin=$(find "$dir/build" -name '*.ino.bin' | head -1)
+            [ -n "$bin" ] && cp "$bin" "out/${name}-${{ matrix.target }}.bin"
+          done
+          ls -la out
+
+      - name: Attach to release
+        if: github.event_name == 'release'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "${{ github.event.release.tag_name }}" out/*.bin --clobber
