@@ -80,6 +80,13 @@ class NodrixClass {
 
   void setDebug(bool on = true) { _debug = on; }
 
+  // Key defaults to the MAC. The cloud compares the version to decide whether an
+  // update is due, so a board that never sets one is never reported as updated.
+  void setDeviceKey(const char* key) { _deviceKey = key; }
+  void setFirmwareVersion(const char* v) { _firmwareVersion = v; }
+  void setChip(const char* c) { _chip = c; }
+  bool checkForUpdate();
+
   void _handleWsEvent(WStype_t type, uint8_t* payload, size_t length);
 
  private:
@@ -91,6 +98,11 @@ class NodrixClass {
   void ackWs(const char* id);
   bool validKey(const char* key) const;
   bool ensureRoom();
+
+  String deviceKey() const;
+  void sendHello();
+  bool applyUpdate();
+  void markRunningImageValid();
 
   int httpPost(const char* path, const String& body);
   bool httpGet(const char* path, String& out);
@@ -111,6 +123,11 @@ class NodrixClass {
 
   void (*_onConnect)() = nullptr;
   void (*_onDisconnect)() = nullptr;
+
+  const char* _deviceKey = nullptr;
+  const char* _firmwareVersion = nullptr;
+  const char* _chip = nullptr;
+  bool _imageConfirmed = false;
 
   bool _insecure = true;
   const char* _ca = nullptr;
