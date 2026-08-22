@@ -89,6 +89,8 @@ class NodrixClass {
 
   // Key defaults to the MAC. The cloud compares the version to decide whether an
   // update is due, so a board that never sets one is never reported as updated.
+  // A sketch nodrix compiled already carries its build id — setting a version by
+  // hand there replaces it, and then a finished update never reads as finished.
   void setDeviceKey(const char* key) { _deviceKey = key; }
   void setFirmwareVersion(const char* v) { _firmwareVersion = v; }
   void setChip(const char* c) { _chip = c; }
@@ -133,7 +135,11 @@ class NodrixClass {
   void (*_onDisconnect)() = nullptr;
 
   const char* _deviceKey = nullptr;
+#ifdef NODRIX_BUILD
+  const char* _firmwareVersion = NODRIX_BUILD;
+#else
   const char* _firmwareVersion = nullptr;
+#endif
   const char* _chip = nullptr;
   bool _imageConfirmed = false;
   bool _otaDue = false;
