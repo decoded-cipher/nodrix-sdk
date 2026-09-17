@@ -407,12 +407,24 @@ bool NodrixClass::httpGet(const char* path, String& out) {
   http.addHeader("Authorization", "Bearer " + _token);
   http.addHeader("X-Nodrix-Device", deviceKey());
   if (_firmwareVersion) http.addHeader("X-Nodrix-Firmware", _firmwareVersion);
-  if (_chip) http.addHeader("X-Nodrix-Chip", _chip);
+  http.addHeader("X-Nodrix-Chip", chipName());
   int code = http.GET();
   if (code == 200) out = http.getString();
   http.end();
   if (code != 200) logHttp("GET", path, code);
   return code == 200;
+}
+
+String NodrixClass::chipName() const {
+  if (_chip) return String(_chip);
+  if (_chipAuto.length()) return _chipAuto;
+#if defined(ESP32)
+  _chipAuto = String(ESP.getChipModel());
+  _chipAuto.toLowerCase();
+#else
+  _chipAuto = "esp8266";
+#endif
+  return _chipAuto;
 }
 
 String NodrixClass::deviceKey() const {
@@ -426,7 +438,7 @@ void NodrixClass::sendHello() {
   JsonDocument doc;
   doc["type"] = "hello";
   doc["device"] = deviceKey();
-  if (_chip) doc["chip"] = _chip;
+  doc["chip"] = chipName();
   if (_firmwareVersion) doc["firmware"] = _firmwareVersion;
   String out;
   serializeJson(doc, out);

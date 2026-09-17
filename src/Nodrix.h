@@ -87,9 +87,9 @@ class NodrixClass {
 
   void setDebug(bool on = true) { _debug = on; }
 
-  // Key defaults to the MAC. The version must match the string the image was
-  // uploaded under, or the update is never seen as finished; without one,
-  // updates are skipped.
+  // Key defaults to the MAC, chip to the one this was built for. The version
+  // must match the string the image was uploaded under, or the update is never
+  // seen as finished; without one, updates are skipped.
   void setDeviceKey(const char* key) { _deviceKey = key; }
   void setFirmwareVersion(const char* v) { _firmwareVersion = v; }
   void setChip(const char* c) { _chip = c; }
@@ -108,6 +108,7 @@ class NodrixClass {
   bool ensureRoom();
 
   String deviceKey() const;
+  String chipName() const;
   void sendHello();
   bool applyUpdate();
   void serviceUpdates();
@@ -136,6 +137,7 @@ class NodrixClass {
   const char* _deviceKey = nullptr;
   const char* _firmwareVersion = nullptr;
   const char* _chip = nullptr;
+  mutable String _chipAuto;
   bool _imageConfirmed = false;
   bool _otaDue = false;
   unsigned long _lastOtaCheck = 0;
