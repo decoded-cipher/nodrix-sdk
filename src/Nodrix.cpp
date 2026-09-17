@@ -4,7 +4,9 @@
   #include <WiFi.h>
   #include <WiFiClientSecure.h>
   #include <HTTPClient.h>
+  #include <HTTPUpdate.h>
   #include <WiFiMulti.h>
+  #include <esp_ota_ops.h>
   #define NODRIX_MAKE_TLS(client)                                   \
     WiFiClientSecure client;                                        \
     do { if (_ca) client.setCACert(_ca); else client.setInsecure(); } while (0)
@@ -12,6 +14,7 @@
   #include <ESP8266WiFi.h>
   #include <WiFiClientSecureBearSSL.h>
   #include <ESP8266HTTPClient.h>
+  #include <ESP8266httpUpdate.h>
   #include <ESP8266WiFiMulti.h>
   #define NODRIX_MAKE_TLS(client)                                   \
     BearSSL::WiFiClientSecure client;                               \
@@ -120,6 +123,7 @@ void NodrixClass::beginHTTP(const char* host, const char* token, uint16_t port) 
   _token = token;
   _port = port;
   _wsMode = false;
+  _otaDue = true;
 
   connectWiFi();
   _connected = (WiFi.status() == WL_CONNECTED);
@@ -146,12 +150,14 @@ void NodrixClass::run() {
   if (WiFi.status() != WL_CONNECTED) wifiMulti.run();
   _ws.loop();
   flush();
+  serviceUpdates();
 }
 
 bool NodrixClass::poll() {
   if (_wsMode) return false;
   if (WiFi.status() != WL_CONNECTED) wifiMulti.run();
   flush();
+  serviceUpdates();
 
   String body;
   if (!httpGet("/v1/control", body)) return false;
@@ -209,6 +215,8 @@ void NodrixClass::_handleWsEvent(WStype_t type, uint8_t* payload, size_t length)
           dispatchControl(variable, doc["value"]);
           if (id[0]) ackWs(id);
         }
+      } else if (strcmp(t, "ota") == 0) {
+        _otaDue = true;
       } else if (strcmp(t, "error") == 0) {
         NODRIX_LOG("[nodrix] server error: %s\n", (const char*)(doc["code"] | ""));
       }
@@ -220,6 +228,9 @@ void NodrixClass::_handleWsEvent(WStype_t type, uint8_t* payload, size_t length)
 }
 
 void NodrixClass::onConnected() {
+  sendHello();
+  markRunningImageValid();
+  _otaDue = true;
   seedControlVars();
   flush();
   if (_onConnect) _onConnect();
@@ -378,6 +389,7 @@ int NodrixClass::httpPost(const char* path, const String& body) {
   }
   http.addHeader("Authorization", "Bearer " + _token);
   http.addHeader("Content-Type", "application/json");
+  http.addHeader("X-Nodrix-Device", deviceKey());
   int code = http.POST(body);
   http.end();
   if (code != 204 && code != 200) logHttp("POST", path, code);
@@ -393,9 +405,118 @@ bool NodrixClass::httpGet(const char* path, String& out) {
     return false;
   }
   http.addHeader("Authorization", "Bearer " + _token);
+  http.addHeader("X-Nodrix-Device", deviceKey());
+  if (_firmwareVersion) http.addHeader("X-Nodrix-Firmware", _firmwareVersion);
+  http.addHeader("X-Nodrix-Chip", chipName());
   int code = http.GET();
   if (code == 200) out = http.getString();
   http.end();
   if (code != 200) logHttp("GET", path, code);
   return code == 200;
+}
+
+String NodrixClass::chipName() const {
+  if (_chip) return String(_chip);
+  if (_chipAuto.length()) return _chipAuto;
+#if defined(ESP32)
+  _chipAuto = String(ESP.getChipModel());
+  _chipAuto.toLowerCase();
+#else
+  _chipAuto = "esp8266";
+#endif
+  return _chipAuto;
+}
+
+String NodrixClass::deviceKey() const {
+  if (_deviceKey) return String(_deviceKey);
+  String mac = WiFi.macAddress();
+  mac.replace(":", "");
+  return mac;
+}
+
+void NodrixClass::sendHello() {
+  JsonDocument doc;
+  doc["type"] = "hello";
+  doc["device"] = deviceKey();
+  doc["chip"] = chipName();
+  if (_firmwareVersion) doc["firmware"] = _firmwareVersion;
+  String out;
+  serializeJson(doc, out);
+  _ws.sendTXT(out);
+}
+
+// The cloud never pushes; it only records which version this board should be on.
+bool NodrixClass::checkForUpdate() {
+  if (WiFi.status() != WL_CONNECTED) return false;
+  // No version means the cloud never sees the update land, so it stays on offer.
+  if (!_firmwareVersion) {
+    NODRIX_LOG("[nodrix] no firmware version set; skipping update\n");
+    return false;
+  }
+
+  String body;
+  if (!httpGet("/v1/ota", body)) return false;
+
+  JsonDocument doc;
+  if (deserializeJson(doc, body)) return false;
+  JsonVariantConst update = doc["update"];
+  if (update.isNull()) return false;
+
+  NODRIX_LOG("[nodrix] update available: %s\n", (const char*)(update["version"] | "?"));
+  return applyUpdate();
+}
+
+bool NodrixClass::applyUpdate() {
+  NODRIX_MAKE_TLS(client);
+  String url = "https://" + _host + ":" + String(_port) + "/v1/ota/image";
+
+#if defined(ESP32)
+  httpUpdate.rebootOnUpdate(false);
+  httpUpdate.setAuthorization("Bearer " + _token);
+  t_httpUpdate_return r = httpUpdate.update(client, url);
+#elif defined(ESP8266)
+  ESPhttpUpdate.rebootOnUpdate(false);
+  ESPhttpUpdate.setAuthorization("Bearer " + _token);
+  t_httpUpdate_return r = ESPhttpUpdate.update(client, url);
+#endif
+
+  if (r != HTTP_UPDATE_OK) {
+#if defined(ESP32)
+    NODRIX_LOG("[nodrix] update failed: %s\n", httpUpdate.getLastErrorString().c_str());
+#else
+    NODRIX_LOG("[nodrix] update failed: %s\n", ESPhttpUpdate.getLastErrorString().c_str());
+#endif
+    return false;
+  }
+
+  NODRIX_LOG("[nodrix] update written, restarting\n");
+  delay(100);
+  ESP.restart();
+  return true;
+}
+
+// applyUpdate() blocks and then restarts, so it runs from the loop rather than
+// from inside the socket callback that asked for it.
+void NodrixClass::serviceUpdates() {
+  if (WiFi.status() != WL_CONNECTED) return;
+  unsigned long now = millis();
+  if (now - _lastOtaCheck >= NODRIX_OTA_POLL_INTERVAL_MS) _otaDue = true;
+  if (!_otaDue) return;
+  _otaDue = false;
+  _lastOtaCheck = now;
+  checkForUpdate();
+}
+
+// Reaching the cloud proves the image works; until this runs, a reset rolls back.
+void NodrixClass::markRunningImageValid() {
+#if defined(ESP32)
+  if (_imageConfirmed) return;
+  _imageConfirmed = true;
+  const esp_partition_t* running = esp_ota_get_running_partition();
+  esp_ota_img_states_t state;
+  if (esp_ota_get_state_partition(running, &state) != ESP_OK) return;
+  if (state != ESP_OTA_IMG_PENDING_VERIFY) return;
+  esp_ota_mark_app_valid_cancel_rollback();
+  NODRIX_LOG("[nodrix] running image confirmed\n");
+#endif
 }
