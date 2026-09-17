@@ -49,6 +49,7 @@ jobs:
             - examples/MultiWiFi
             - examples/SensorTelemetry
             - examples/DeepSleepSensor
+            - examples/OtaUpdate
 
       # The browser flasher reads these off the release. Names must stay
       # <Example>-<target>.bin — the catalogue parses them.
