@@ -436,6 +436,11 @@ void NodrixClass::sendHello() {
 // The cloud never pushes; it only records which version this board should be on.
 bool NodrixClass::checkForUpdate() {
   if (WiFi.status() != WL_CONNECTED) return false;
+  // No version means the cloud never sees the update land, so it stays on offer.
+  if (!_firmwareVersion) {
+    NODRIX_LOG("[nodrix] no firmware version set; skipping update\n");
+    return false;
+  }
 
   String body;
   if (!httpGet("/v1/ota", body)) return false;
