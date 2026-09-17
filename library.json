@@ -1,6 +1,6 @@
 {
   "name": "Nodrix",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Nodrix device library for ESP32 and ESP8266. Hides WiFi, TLS, WebSocket/HTTP, JSON and the control/telemetry protocol behind a tiny API.",
   "keywords": "nodrix, iot, esp32, esp8266, websocket, telemetry, home-automation",
   "repository": {

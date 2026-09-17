@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.1.1 — 2026-09-16
+
+- Debug output now tells connection failures apart: failed HTTP requests log the
+  status code with a reason (token rejected, no access, wrong host, rate limited,
+  server error, no connection), a refused WebSocket handshake is reported separately
+  from a dropped link, and socket errors are no longer swallowed. All behind
+  `setDebug(true)`.
+- Install from the Arduino Library Manager, PlatformIO Registry, or ESP Component
+  Registry; added ESP-IDF instructions.
+
 ## 0.1.0 — 2026-07-05
 
 First release.
