@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.2.0 — 2026-10-02
+
+- Over-the-air updates. `setFirmwareVersion()` names the version a sketch is; it
+  must match the version the image was uploaded under. A board updates itself
+  when firmware is assigned to it: told over the socket, or through `poll()` in
+  HTTP mode, with a six-hourly check as a backstop. `checkForUpdate()` asks now.
+  Without a version, updates are skipped.
+- Updates are checked against the uploaded image's hash. On ESP32 a new image is
+  kept only once it reaches the cloud; one that resets first, or stays offline
+  for 15 minutes on a working network, rolls back. A rolled-back or impossible
+  update is reported and not offered again.
+- Boards identify themselves: a device key (the MAC, or `setDeviceKey()`), the
+  chip (`ESP.getChipModel()` on ESP32, or `setChip()`) and the firmware version.
+- New `OtaUpdate` example.
+- A sketch that blocks in `loop()`, such as a `delay()` blink, connects and stays
+  connected for blocks up to about 10 s. Reconnects back off from 5 s to 60 s.
+- `poll()` makes all its requests over one TLS connection. ESP32 TLS handshakes
+  give up after 15 s; ESP8266 resumes TLS sessions.
+- With `setDebug(true)`, a `run()` that blocks for over 500 ms is logged.
+
 ## 0.1.1 — 2026-09-16
 
 - Debug output now tells connection failures apart: failed HTTP requests log the

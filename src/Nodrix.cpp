@@ -4,18 +4,25 @@
   #include <WiFi.h>
   #include <WiFiClientSecure.h>
   #include <HTTPClient.h>
+  #include <HTTPUpdate.h>
   #include <WiFiMulti.h>
+  #include <esp_ota_ops.h>
+  #include <Preferences.h>
   #define NODRIX_MAKE_TLS(client)                                   \
     WiFiClientSecure client;                                        \
-    do { if (_ca) client.setCACert(_ca); else client.setInsecure(); } while (0)
+    do { if (_ca) client.setCACert(_ca); else client.setInsecure();  \
+         client.setHandshakeTimeout(15); } while (0)
 #elif defined(ESP8266)
   #include <ESP8266WiFi.h>
   #include <WiFiClientSecureBearSSL.h>
   #include <ESP8266HTTPClient.h>
+  #include <ESP8266httpUpdate.h>
   #include <ESP8266WiFiMulti.h>
+  static BearSSL::Session tlsSession;
   #define NODRIX_MAKE_TLS(client)                                   \
     BearSSL::WiFiClientSecure client;                               \
-    do { if (_fingerprint) client.setFingerprint(_fingerprint); else client.setInsecure(); } while (0)
+    do { if (_fingerprint) client.setFingerprint(_fingerprint); else client.setInsecure(); \
+         client.setSession(&tlsSession); } while (0)
 #else
   #error "Nodrix supports ESP32 and ESP8266"
 #endif
@@ -31,6 +38,20 @@ static ESP8266WiFiMulti wifiMulti;
 static const int MAX_POINTS = 200;
 static const int MAX_KEY_LEN = 64;
 static const int MAX_STRING_VALUE = 512;
+static const uint32_t RECONNECT_MIN_MS = 5000;
+static const uint32_t RECONNECT_MAX_MS = 60000;
+static const unsigned long CONFIRM_DEADLINE_MS = 15UL * 60 * 1000;
+
+#if defined(ESP32)
+// Otherwise the core marks every new image valid before setup() and rollback never fires.
+extern "C" bool verifyRollbackLater() { return true; }
+
+static bool imagePendingVerify() {
+  esp_ota_img_states_t state;
+  return esp_ota_get_state_partition(esp_ota_get_running_partition(), &state) == ESP_OK &&
+         state == ESP_OTA_IMG_PENDING_VERIFY;
+}
+#endif
 
 // Registry head in a function-local static so it's valid during static init.
 static NodrixHandlerReg*& registryHead() {
@@ -95,6 +116,7 @@ void NodrixClass::begin(const char* host, const char* token, uint16_t port) {
   _wsPath = "/v1/control/ws?token=" + _token;
 
   connectWiFi();
+  reportRollback();
 
   _ws.onEvent([](WStype_t t, uint8_t* p, size_t l) { Nodrix._handleWsEvent(t, p, l); });
 #if defined(ESP32)
@@ -105,8 +127,8 @@ void NodrixClass::begin(const char* host, const char* token, uint16_t port) {
   // ESP8266 WebSocket TLS is unvalidated; fingerprint/CA pinning is HTTP-only there.
   _ws.beginSSL(_host.c_str(), _port, _wsPath.c_str());
 #endif
-  _ws.setReconnectInterval(5000);
-  _ws.enableHeartbeat(15000, 3000, 2);
+  _ws.setReconnectInterval(RECONNECT_MIN_MS);
+  _ws.enableHeartbeat(30000, 10000, 2);
 }
 
 void NodrixClass::beginHTTP(const char* ssid, const char* pass, const char* host,
@@ -122,6 +144,7 @@ void NodrixClass::beginHTTP(const char* host, const char* token, uint16_t port) 
   _wsMode = false;
 
   connectWiFi();
+  reportRollback();
   _connected = (WiFi.status() == WL_CONNECTED);
   seedControlVars();
   flush();
@@ -143,40 +166,62 @@ void NodrixClass::connectWiFi() {
 
 void NodrixClass::run() {
   if (!_wsMode) return;
+  unsigned long start = millis();
   if (WiFi.status() != WL_CONNECTED) wifiMulti.run();
+  unsigned long before = millis();
   _ws.loop();
+  // The library reads one handshake line per loop() and gives up after 5s.
+  if (!_connected && millis() - before > 50) {
+    unsigned long t = millis();
+    while (!_connected && millis() - t < 1000) {
+      _ws.loop();
+      delay(1);
+    }
+  }
   flush();
+  serviceUpdates();
+  if (millis() - start > 500) NODRIX_LOG("[nodrix] run() blocked %lu ms\n", millis() - start);
 }
 
 bool NodrixClass::poll() {
   if (_wsMode) return false;
   if (WiFi.status() != WL_CONNECTED) wifiMulti.run();
-  flush();
 
-  String body;
-  if (!httpGet("/v1/control", body)) return false;
+  bool ok = false;
+  {
+    NODRIX_MAKE_TLS(client);
+    HTTPClient http;
+    http.setReuse(true);
 
-  JsonDocument doc;
-  if (deserializeJson(doc, body)) return false;
+    postTelemetry(http, client);
+    String body;
+    JsonDocument doc;
+    if (request(http, client, "GET", "/v1/control", String(), &body) == 200 && !deserializeJson(doc, body)) {
+      ok = true;
+      markRunningImageValid();
 
-  JsonDocument ackDoc;
-  JsonArray ids = ackDoc["ids"].to<JsonArray>();
-  for (JsonObject c : doc["control"].as<JsonArray>()) {
-    const char* id = c["id"] | "";
-    const char* variable = c["variable"] | "";
-    if (variable[0]) {
-      dispatchControl(variable, c["value"]);
-      if (id[0]) ids.add(id);
+      JsonDocument ackDoc;
+      JsonArray ids = ackDoc["ids"].to<JsonArray>();
+      for (JsonObject c : doc["control"].as<JsonArray>()) {
+        const char* id = c["id"] | "";
+        const char* variable = c["variable"] | "";
+        if (variable[0]) {
+          dispatchControl(variable, c["value"]);
+          if (id[0]) ids.add(id);
+        }
+      }
+
+      postTelemetry(http, client);  // echoes staged by the handlers
+      if (ids.size() > 0) {
+        String ackBody;
+        serializeJson(ackDoc, ackBody);
+        request(http, client, "POST", "/v1/control/ack", ackBody, nullptr);
+      }
+      if (doc["ota"] | false) _otaDue = true;
     }
   }
-
-  flush();  // send echoes staged by the handlers
-  if (ids.size() > 0) {
-    String ackBody;
-    serializeJson(ackDoc, ackBody);
-    httpPost("/v1/control/ack", ackBody);
-  }
-  return true;
+  serviceUpdates();
+  return ok;
 }
 
 void NodrixClass::_handleWsEvent(WStype_t type, uint8_t* payload, size_t length) {
@@ -184,11 +229,15 @@ void NodrixClass::_handleWsEvent(WStype_t type, uint8_t* payload, size_t length)
     case WStype_CONNECTED:
       _connected = true;
       _everConnected = true;
+      _reconnectMs = RECONNECT_MIN_MS;
+      _ws.setReconnectInterval(_reconnectMs);
       NODRIX_LOG("[nodrix] connected\n");
       onConnected();
       break;
     case WStype_DISCONNECTED:
       _connected = false;
+      _reconnectMs = min(_reconnectMs * 2, RECONNECT_MAX_MS);
+      _ws.setReconnectInterval(_reconnectMs);
       // A socket that never once opened is a refused handshake, not a dropped
       // link — almost always a bad token or the wrong host.
       if (_everConnected) NODRIX_LOG("[nodrix] disconnected\n");
@@ -209,6 +258,8 @@ void NodrixClass::_handleWsEvent(WStype_t type, uint8_t* payload, size_t length)
           dispatchControl(variable, doc["value"]);
           if (id[0]) ackWs(id);
         }
+      } else if (strcmp(t, "ota") == 0) {
+        _otaDue = true;
       } else if (strcmp(t, "error") == 0) {
         NODRIX_LOG("[nodrix] server error: %s\n", (const char*)(doc["code"] | ""));
       }
@@ -220,6 +271,8 @@ void NodrixClass::_handleWsEvent(WStype_t type, uint8_t* payload, size_t length)
 }
 
 void NodrixClass::onConnected() {
+  sendHello();
+  markRunningImageValid();
   seedControlVars();
   flush();
   if (_onConnect) _onConnect();
@@ -326,11 +379,9 @@ void NodrixClass::flush() {
     _ws.sendTXT(out);
     _tx.clear();
   } else {
-    JsonDocument env;
-    env["metrics"] = _tx.as<JsonObjectConst>();
-    String out;
-    serializeJson(env, out);
-    if (httpPost("/v1/telemetry", out) == 204) _tx.clear();
+    NODRIX_MAKE_TLS(client);
+    HTTPClient http;
+    postTelemetry(http, client);
   }
 }
 
@@ -368,34 +419,204 @@ void NodrixClass::logHttp(const char* method, const char* path, int code) {
   NODRIX_LOG("[nodrix] %s %s -> %d%s\n", method, path, code, why);
 }
 
-int NodrixClass::httpPost(const char* path, const String& body) {
-  NODRIX_MAKE_TLS(client);
-  HTTPClient http;
+template <typename C>
+int NodrixClass::request(HTTPClient& http, C& client, const char* method, const char* path,
+                         const String& body, String* out) {
   String url = "https://" + _host + ":" + String(_port) + path;
   if (!http.begin(client, url)) {
-    logHttp("POST", path, -1);
+    logHttp(method, path, -1);
     return -1;
   }
   http.addHeader("Authorization", "Bearer " + _token);
-  http.addHeader("Content-Type", "application/json");
-  int code = http.POST(body);
+  http.addHeader("X-Nodrix-Device", deviceKey());
+  if (_firmwareVersion) http.addHeader("X-Nodrix-Firmware", _firmwareVersion);
+  http.addHeader("X-Nodrix-Chip", chipName());
+  int code;
+  if (strcmp(method, "GET") == 0) {
+    code = http.GET();
+  } else {
+    http.addHeader("Content-Type", "application/json");
+    code = http.POST(body);
+  }
+  if (code == 200 && out) *out = http.getString();
   http.end();
-  if (code != 204 && code != 200) logHttp("POST", path, code);
+  if (code != 200 && code != 204) logHttp(method, path, code);
   return code;
+}
+
+template <typename C>
+void NodrixClass::postTelemetry(HTTPClient& http, C& client) {
+  if (_tx.size() == 0) return;
+  JsonDocument env;
+  env["metrics"] = _tx.as<JsonObjectConst>();
+  String out;
+  serializeJson(env, out);
+  if (request(http, client, "POST", "/v1/telemetry", out, nullptr) == 204) _tx.clear();
+}
+
+int NodrixClass::httpPost(const char* path, const String& body) {
+  NODRIX_MAKE_TLS(client);
+  HTTPClient http;
+  return request(http, client, "POST", path, body, nullptr);
 }
 
 bool NodrixClass::httpGet(const char* path, String& out) {
   NODRIX_MAKE_TLS(client);
   HTTPClient http;
-  String url = "https://" + _host + ":" + String(_port) + path;
-  if (!http.begin(client, url)) {
-    logHttp("GET", path, -1);
+  return request(http, client, "GET", path, String(), &out) == 200;
+}
+
+String NodrixClass::chipName() const {
+  if (_chip) return String(_chip);
+  if (_chipAuto.length()) return _chipAuto;
+#if defined(ESP32)
+  _chipAuto = String(ESP.getChipModel());
+  _chipAuto.toLowerCase();
+#else
+  _chipAuto = "esp8266";
+#endif
+  return _chipAuto;
+}
+
+String NodrixClass::deviceKey() const {
+  if (_deviceKey) return String(_deviceKey);
+  String mac = WiFi.macAddress();
+  mac.replace(":", "");
+  return mac;
+}
+
+void NodrixClass::sendHello() {
+  JsonDocument doc;
+  doc["type"] = "hello";
+  doc["device"] = deviceKey();
+  doc["chip"] = chipName();
+  if (_firmwareVersion) doc["firmware"] = _firmwareVersion;
+  String out;
+  serializeJson(doc, out);
+  _ws.sendTXT(out);
+}
+
+// The cloud never pushes; it only records which version this board should be on.
+bool NodrixClass::checkForUpdate() {
+  if (WiFi.status() != WL_CONNECTED) return false;
+  // No version means the cloud never sees the update land, so it stays on offer.
+  if (!_firmwareVersion) {
+    NODRIX_LOG("[nodrix] no firmware version set; skipping update\n");
     return false;
   }
+
+  String body;
+  if (!httpGet("/v1/ota", body)) return false;
+
+  JsonDocument doc;
+  if (deserializeJson(doc, body)) return false;
+  JsonVariantConst update = doc["update"];
+  if (update.isNull()) return false;
+
+  const char* version = update["version"] | "";
+  NODRIX_LOG("[nodrix] update available: %s\n", version);
+  return applyUpdate(version);
+}
+
+bool NodrixClass::applyUpdate(const char* version) {
+  if (_wsMode) _ws.disconnect();
+  NODRIX_MAKE_TLS(client);
+  String url = "https://" + _host + ":" + String(_port) + "/v1/ota/image";
+  HTTPClient http;
+  if (!http.begin(client, url)) {
+    logHttp("GET", "/v1/ota/image", -1);
+    return false;
+  }
+  // setAuthorization() would send "Basic Bearer ...", so set the header directly.
   http.addHeader("Authorization", "Bearer " + _token);
-  int code = http.GET();
-  if (code == 200) out = http.getString();
-  http.end();
-  if (code != 200) logHttp("GET", path, code);
-  return code == 200;
+  http.addHeader("X-Nodrix-Device", deviceKey());
+
+#if defined(ESP32)
+  httpUpdate.rebootOnUpdate(false);
+  t_httpUpdate_return r = httpUpdate.update(http);
+#elif defined(ESP8266)
+  ESPhttpUpdate.rebootOnUpdate(false);
+  t_httpUpdate_return r = ESPhttpUpdate.update(http);
+#endif
+
+  if (r != HTTP_UPDATE_OK) {
+#if defined(ESP32)
+    int code = httpUpdate.getLastError();
+    NODRIX_LOG("[nodrix] update failed: %s\n", httpUpdate.getLastErrorString().c_str());
+#else
+    int code = ESPhttpUpdate.getLastError();
+    NODRIX_LOG("[nodrix] update failed: %s\n", ESPhttpUpdate.getLastErrorString().c_str());
+#endif
+    reportOta("failed", version, code);
+    return false;
+  }
+
+#if defined(ESP32)
+  Preferences prefs;
+  prefs.begin("nodrix");
+  prefs.putString("ota", version);
+  prefs.end();
+#endif
+  NODRIX_LOG("[nodrix] update written, restarting\n");
+  delay(100);
+  ESP.restart();
+  return true;
+}
+
+// applyUpdate() blocks and then restarts, so it runs from the loop rather than
+// from inside the socket callback that asked for it.
+void NodrixClass::serviceUpdates() {
+  if (WiFi.status() != WL_CONNECTED) return;
+#if defined(ESP32)
+  // Roll back an image that runs but never reaches the cloud.
+  if (!_imageConfirmed && millis() > CONFIRM_DEADLINE_MS) {
+    _imageConfirmed = true;
+    if (imagePendingVerify()) {
+      NODRIX_LOG("[nodrix] new image never reached the cloud; rolling back\n");
+      esp_ota_mark_app_invalid_rollback_and_reboot();
+    }
+  }
+#endif
+  unsigned long now = millis();
+  if (now - _lastOtaCheck >= NODRIX_OTA_POLL_INTERVAL_MS) _otaDue = true;
+  if (!_otaDue) return;
+  _otaDue = false;
+  _lastOtaCheck = now;
+  checkForUpdate();
+}
+
+// Reaching the cloud proves the image works; until this runs, a reset rolls back.
+void NodrixClass::markRunningImageValid() {
+#if defined(ESP32)
+  if (_imageConfirmed) return;
+  _imageConfirmed = true;
+  if (!imagePendingVerify()) return;
+  esp_ota_mark_app_valid_cancel_rollback();
+  NODRIX_LOG("[nodrix] running image confirmed\n");
+#endif
+}
+
+void NodrixClass::reportOta(const char* state, const char* version, int code) {
+  JsonDocument doc;
+  doc["state"] = state;
+  if (version && version[0]) doc["version"] = version;
+  if (code) doc["code"] = code;
+  String out;
+  serializeJson(doc, out);
+  httpPost("/v1/ota/status", out);
+}
+
+// A saved update version that isn't the one running never took.
+void NodrixClass::reportRollback() {
+#if defined(ESP32)
+  if (WiFi.status() != WL_CONNECTED) return;
+  Preferences prefs;
+  if (!prefs.begin("nodrix")) return;
+  String pending = prefs.isKey("ota") ? prefs.getString("ota") : String();
+  if (pending.length()) prefs.remove("ota");
+  prefs.end();
+  if (!pending.length() || !_firmwareVersion || pending == _firmwareVersion) return;
+  NODRIX_LOG("[nodrix] update to %s did not take; running %s\n", pending.c_str(), _firmwareVersion);
+  reportOta("rolled_back", pending.c_str(), 0);
+#endif
 }

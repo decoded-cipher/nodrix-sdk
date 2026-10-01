@@ -28,3 +28,7 @@ asFloat	KEYWORD2
 asDouble	KEYWORD2
 asString	KEYWORD2
 isNull	KEYWORD2
+setDeviceKey	KEYWORD2
+setFirmwareVersion	KEYWORD2
+setChip	KEYWORD2
+checkForUpdate	KEYWORD2

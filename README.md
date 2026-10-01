@@ -126,6 +126,40 @@ Nodrix.event("door_opened");
   `Nodrix.run()` every `loop()`. Best for lights, relays, anything cloud-driven.
 - **HTTP — `beginHTTP()`** — for battery / deep-sleep nodes. `send()` + `flush()`
   to POST readings, `poll()` to fetch and apply pending control, then sleep.
+  Each `poll()` uses a single TLS connection.
+
+Connecting is a TLS handshake, and it runs inside `run()` or `poll()`: expect
+`loop()` to pause for a second or two when the board (re)connects, and for each
+`poll()`. Retries back off from 5 s to a minute while the server is unreachable.
+A `delay()` of up to about 10 s in `loop()` is fine. Anything that must not
+stutter, like a steady blink, belongs on `millis()` timing or a hardware timer
+(`Ticker`, LEDC) rather than on the same loop as the network.
+
+## Over-the-air updates
+
+Name the version the sketch is, before `begin()`:
+
+```cpp
+Nodrix.setFirmwareVersion("1.2.0");
+```
+
+The board reports that string, and Nodrix compares it against the firmware
+assigned to the device. Upload the compiled `.ino.bin` under the **same** string
+— if the two differ, the board keeps reinstalling an update it can never
+complete, and Nodrix marks it failed after a few attempts.
+
+A board on WebSocket is told as soon as firmware is assigned, or when it next
+connects; on HTTP, `poll()` learns about it. The update is downloaded, checked
+against the uploaded image's hash, written to the spare OTA slot, and the board
+restarts.
+
+On ESP32, Nodrix decides when a new image is good: it confirms the image once it
+reaches the cloud (the socket connects, or a `poll()` succeeds). An image that
+resets before then rolls back to the previous one, and so does one that stays up
+for 15 minutes on a working network without reaching the cloud. The board then
+reports the rollback and the version stops being offered. A download that fails
+for good, such as no room or a bad image, is reported the same way. ESP8266 has no
+rollback.
 
 ## TLS
 
@@ -172,6 +206,8 @@ leaf, so it must be refreshed on each rotation; prefer a root CA where you can.
 | `setInsecure()` | Skip certificate validation (default) |
 | `setCACert(pem)` | Pin a root CA (ESP32) |
 | `setFingerprint(fp)` | Pin a SHA-1 fingerprint (ESP8266 HTTP) |
+| `setFirmwareVersion(v)` | Name the version this sketch is, for over-the-air updates |
+| `checkForUpdate()` | Ask for an update now instead of waiting for the next check |
 | `setDebug(on)` | Log connection and protocol activity to Serial |
 | `NODRIX_WRITE("var") { ... }` | Handle a cloud write; `value` is in scope |
 
@@ -182,6 +218,7 @@ leaf, so it must be refreshed on each rotation; prefer a root CA where you can.
 - **MultiWiFi** — connect through several WiFi networks with failover.
 - **SensorTelemetry** — DHT11 temperature/humidity over a cert-pinned socket (`secret.h` holds the CA).
 - **DeepSleepSensor** — HTTP mode: read a DHT11, report, apply control, deep sleep.
+- **OtaUpdate** — names its firmware version and updates itself over the air.
 
 `SensorTelemetry` and `DeepSleepSensor` read a DHT11 — install the **DHT sensor
 library** by Adafruit from the Library Manager.

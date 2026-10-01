@@ -5,6 +5,15 @@
 #include <ArduinoJson.h>
 #include <WebSocketsClient.h>
 
+class HTTPClient;
+
+// The socket nudge is what makes an update prompt; this is the backstop for a
+// board that is HTTP-only or was offline when the nudge went out. Request volume
+// is fleet size times frequency, so it is deliberately hours rather than minutes.
+#ifndef NODRIX_OTA_POLL_INTERVAL_MS
+#define NODRIX_OTA_POLL_INTERVAL_MS 21600000UL
+#endif
+
 class NodrixValue {
  public:
   explicit NodrixValue(JsonVariantConst v) : _v(v) {}
@@ -80,6 +89,14 @@ class NodrixClass {
 
   void setDebug(bool on = true) { _debug = on; }
 
+  // Key defaults to the MAC, chip to the one this was built for. The version
+  // must match the string the image was uploaded under, or the update is never
+  // seen as finished; without one, updates are skipped.
+  void setDeviceKey(const char* key) { _deviceKey = key; }
+  void setFirmwareVersion(const char* v) { _firmwareVersion = v; }
+  void setChip(const char* c) { _chip = c; }
+  bool checkForUpdate();
+
   void _handleWsEvent(WStype_t type, uint8_t* payload, size_t length);
 
  private:
@@ -92,6 +109,19 @@ class NodrixClass {
   bool validKey(const char* key) const;
   bool ensureRoom();
 
+  String deviceKey() const;
+  String chipName() const;
+  void sendHello();
+  bool applyUpdate(const char* version);
+  void reportOta(const char* state, const char* version, int code);
+  void reportRollback();
+  void serviceUpdates();
+  void markRunningImageValid();
+
+  template <typename C>
+  int request(HTTPClient& http, C& client, const char* method, const char* path, const String& body, String* out);
+  template <typename C>
+  void postTelemetry(HTTPClient& http, C& client);
   int httpPost(const char* path, const String& body);
   bool httpGet(const char* path, String& out);
   void logHttp(const char* method, const char* path, int code);
@@ -111,6 +141,15 @@ class NodrixClass {
 
   void (*_onConnect)() = nullptr;
   void (*_onDisconnect)() = nullptr;
+
+  const char* _deviceKey = nullptr;
+  const char* _firmwareVersion = nullptr;
+  const char* _chip = nullptr;
+  mutable String _chipAuto;
+  bool _imageConfirmed = false;
+  bool _otaDue = false;
+  unsigned long _lastOtaCheck = 0;
+  uint32_t _reconnectMs = 5000;
 
   bool _insecure = true;
   const char* _ca = nullptr;
