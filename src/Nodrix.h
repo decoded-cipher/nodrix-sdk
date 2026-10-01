@@ -110,7 +110,9 @@ class NodrixClass {
   String deviceKey() const;
   String chipName() const;
   void sendHello();
-  bool applyUpdate();
+  bool applyUpdate(const char* version);
+  void reportOta(const char* state, const char* version, int code);
+  void reportRollback();
   void serviceUpdates();
   void markRunningImageValid();
 

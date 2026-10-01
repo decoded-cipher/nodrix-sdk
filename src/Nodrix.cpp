@@ -7,6 +7,7 @@
   #include <HTTPUpdate.h>
   #include <WiFiMulti.h>
   #include <esp_ota_ops.h>
+  #include <Preferences.h>
   #define NODRIX_MAKE_TLS(client)                                   \
     WiFiClientSecure client;                                        \
     do { if (_ca) client.setCACert(_ca); else client.setInsecure(); } while (0)
@@ -34,6 +35,18 @@ static ESP8266WiFiMulti wifiMulti;
 static const int MAX_POINTS = 200;
 static const int MAX_KEY_LEN = 64;
 static const int MAX_STRING_VALUE = 512;
+static const unsigned long CONFIRM_DEADLINE_MS = 15UL * 60 * 1000;
+
+#if defined(ESP32)
+// Otherwise the core marks every new image valid before setup() and rollback never fires.
+extern "C" bool verifyRollbackLater() { return true; }
+
+static bool imagePendingVerify() {
+  esp_ota_img_states_t state;
+  return esp_ota_get_state_partition(esp_ota_get_running_partition(), &state) == ESP_OK &&
+         state == ESP_OTA_IMG_PENDING_VERIFY;
+}
+#endif
 
 // Registry head in a function-local static so it's valid during static init.
 static NodrixHandlerReg*& registryHead() {
@@ -98,6 +111,7 @@ void NodrixClass::begin(const char* host, const char* token, uint16_t port) {
   _wsPath = "/v1/control/ws?token=" + _token;
 
   connectWiFi();
+  reportRollback();
 
   _ws.onEvent([](WStype_t t, uint8_t* p, size_t l) { Nodrix._handleWsEvent(t, p, l); });
 #if defined(ESP32)
@@ -123,9 +137,9 @@ void NodrixClass::beginHTTP(const char* host, const char* token, uint16_t port) 
   _token = token;
   _port = port;
   _wsMode = false;
-  _otaDue = true;
 
   connectWiFi();
+  reportRollback();
   _connected = (WiFi.status() == WL_CONNECTED);
   seedControlVars();
   flush();
@@ -157,13 +171,11 @@ bool NodrixClass::poll() {
   if (_wsMode) return false;
   if (WiFi.status() != WL_CONNECTED) wifiMulti.run();
   flush();
-  serviceUpdates();
 
   String body;
-  if (!httpGet("/v1/control", body)) return false;
-
   JsonDocument doc;
-  if (deserializeJson(doc, body)) return false;
+  if (!httpGet("/v1/control", body) || deserializeJson(doc, body)) return false;
+  markRunningImageValid();
 
   JsonDocument ackDoc;
   JsonArray ids = ackDoc["ids"].to<JsonArray>();
@@ -182,6 +194,8 @@ bool NodrixClass::poll() {
     serializeJson(ackDoc, ackBody);
     httpPost("/v1/control/ack", ackBody);
   }
+  if (doc["ota"] | false) _otaDue = true;
+  serviceUpdates();
   return true;
 }
 
@@ -230,7 +244,6 @@ void NodrixClass::_handleWsEvent(WStype_t type, uint8_t* payload, size_t length)
 void NodrixClass::onConnected() {
   sendHello();
   markRunningImageValid();
-  _otaDue = true;
   seedControlVars();
   flush();
   if (_onConnect) _onConnect();
@@ -462,33 +475,50 @@ bool NodrixClass::checkForUpdate() {
   JsonVariantConst update = doc["update"];
   if (update.isNull()) return false;
 
-  NODRIX_LOG("[nodrix] update available: %s\n", (const char*)(update["version"] | "?"));
-  return applyUpdate();
+  const char* version = update["version"] | "";
+  NODRIX_LOG("[nodrix] update available: %s\n", version);
+  return applyUpdate(version);
 }
 
-bool NodrixClass::applyUpdate() {
+bool NodrixClass::applyUpdate(const char* version) {
+  if (_wsMode) _ws.disconnect();
   NODRIX_MAKE_TLS(client);
   String url = "https://" + _host + ":" + String(_port) + "/v1/ota/image";
+  HTTPClient http;
+  if (!http.begin(client, url)) {
+    logHttp("GET", "/v1/ota/image", -1);
+    return false;
+  }
+  // setAuthorization() would send "Basic Bearer ...", so set the header directly.
+  http.addHeader("Authorization", "Bearer " + _token);
+  http.addHeader("X-Nodrix-Device", deviceKey());
 
 #if defined(ESP32)
   httpUpdate.rebootOnUpdate(false);
-  httpUpdate.setAuthorization("Bearer " + _token);
-  t_httpUpdate_return r = httpUpdate.update(client, url);
+  t_httpUpdate_return r = httpUpdate.update(http);
 #elif defined(ESP8266)
   ESPhttpUpdate.rebootOnUpdate(false);
-  ESPhttpUpdate.setAuthorization("Bearer " + _token);
-  t_httpUpdate_return r = ESPhttpUpdate.update(client, url);
+  t_httpUpdate_return r = ESPhttpUpdate.update(http);
 #endif
 
   if (r != HTTP_UPDATE_OK) {
 #if defined(ESP32)
+    int code = httpUpdate.getLastError();
     NODRIX_LOG("[nodrix] update failed: %s\n", httpUpdate.getLastErrorString().c_str());
 #else
+    int code = ESPhttpUpdate.getLastError();
     NODRIX_LOG("[nodrix] update failed: %s\n", ESPhttpUpdate.getLastErrorString().c_str());
 #endif
+    reportOta("failed", version, code);
     return false;
   }
 
+#if defined(ESP32)
+  Preferences prefs;
+  prefs.begin("nodrix");
+  prefs.putString("ota", version);
+  prefs.end();
+#endif
   NODRIX_LOG("[nodrix] update written, restarting\n");
   delay(100);
   ESP.restart();
@@ -499,6 +529,16 @@ bool NodrixClass::applyUpdate() {
 // from inside the socket callback that asked for it.
 void NodrixClass::serviceUpdates() {
   if (WiFi.status() != WL_CONNECTED) return;
+#if defined(ESP32)
+  // Roll back an image that runs but never reaches the cloud.
+  if (!_imageConfirmed && millis() > CONFIRM_DEADLINE_MS) {
+    _imageConfirmed = true;
+    if (imagePendingVerify()) {
+      NODRIX_LOG("[nodrix] new image never reached the cloud; rolling back\n");
+      esp_ota_mark_app_invalid_rollback_and_reboot();
+    }
+  }
+#endif
   unsigned long now = millis();
   if (now - _lastOtaCheck >= NODRIX_OTA_POLL_INTERVAL_MS) _otaDue = true;
   if (!_otaDue) return;
@@ -512,11 +552,33 @@ void NodrixClass::markRunningImageValid() {
 #if defined(ESP32)
   if (_imageConfirmed) return;
   _imageConfirmed = true;
-  const esp_partition_t* running = esp_ota_get_running_partition();
-  esp_ota_img_states_t state;
-  if (esp_ota_get_state_partition(running, &state) != ESP_OK) return;
-  if (state != ESP_OTA_IMG_PENDING_VERIFY) return;
+  if (!imagePendingVerify()) return;
   esp_ota_mark_app_valid_cancel_rollback();
   NODRIX_LOG("[nodrix] running image confirmed\n");
+#endif
+}
+
+void NodrixClass::reportOta(const char* state, const char* version, int code) {
+  JsonDocument doc;
+  doc["state"] = state;
+  if (version && version[0]) doc["version"] = version;
+  if (code) doc["code"] = code;
+  String out;
+  serializeJson(doc, out);
+  httpPost("/v1/ota/status", out);
+}
+
+// A saved update version that isn't the one running never took.
+void NodrixClass::reportRollback() {
+#if defined(ESP32)
+  if (WiFi.status() != WL_CONNECTED) return;
+  Preferences prefs;
+  if (!prefs.begin("nodrix")) return;
+  String pending = prefs.isKey("ota") ? prefs.getString("ota") : String();
+  if (pending.length()) prefs.remove("ota");
+  prefs.end();
+  if (!pending.length() || !_firmwareVersion || pending == _firmwareVersion) return;
+  NODRIX_LOG("[nodrix] update to %s did not take; running %s\n", pending.c_str(), _firmwareVersion);
+  reportOta("rolled_back", pending.c_str(), 0);
 #endif
 }
