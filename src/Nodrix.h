@@ -5,6 +5,8 @@
 #include <ArduinoJson.h>
 #include <WebSocketsClient.h>
 
+class HTTPClient;
+
 // The socket nudge is what makes an update prompt; this is the backstop for a
 // board that is HTTP-only or was offline when the nudge went out. Request volume
 // is fleet size times frequency, so it is deliberately hours rather than minutes.
@@ -116,6 +118,10 @@ class NodrixClass {
   void serviceUpdates();
   void markRunningImageValid();
 
+  template <typename C>
+  int request(HTTPClient& http, C& client, const char* method, const char* path, const String& body, String* out);
+  template <typename C>
+  void postTelemetry(HTTPClient& http, C& client);
   int httpPost(const char* path, const String& body);
   bool httpGet(const char* path, String& out);
   void logHttp(const char* method, const char* path, int code);
@@ -143,6 +149,7 @@ class NodrixClass {
   bool _imageConfirmed = false;
   bool _otaDue = false;
   unsigned long _lastOtaCheck = 0;
+  uint32_t _reconnectMs = 5000;
 
   bool _insecure = true;
   const char* _ca = nullptr;

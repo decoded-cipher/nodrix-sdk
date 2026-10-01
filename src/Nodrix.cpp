@@ -10,16 +10,19 @@
   #include <Preferences.h>
   #define NODRIX_MAKE_TLS(client)                                   \
     WiFiClientSecure client;                                        \
-    do { if (_ca) client.setCACert(_ca); else client.setInsecure(); } while (0)
+    do { if (_ca) client.setCACert(_ca); else client.setInsecure();  \
+         client.setHandshakeTimeout(15); } while (0)
 #elif defined(ESP8266)
   #include <ESP8266WiFi.h>
   #include <WiFiClientSecureBearSSL.h>
   #include <ESP8266HTTPClient.h>
   #include <ESP8266httpUpdate.h>
   #include <ESP8266WiFiMulti.h>
+  static BearSSL::Session tlsSession;
   #define NODRIX_MAKE_TLS(client)                                   \
     BearSSL::WiFiClientSecure client;                               \
-    do { if (_fingerprint) client.setFingerprint(_fingerprint); else client.setInsecure(); } while (0)
+    do { if (_fingerprint) client.setFingerprint(_fingerprint); else client.setInsecure(); \
+         client.setSession(&tlsSession); } while (0)
 #else
   #error "Nodrix supports ESP32 and ESP8266"
 #endif
@@ -35,6 +38,8 @@ static ESP8266WiFiMulti wifiMulti;
 static const int MAX_POINTS = 200;
 static const int MAX_KEY_LEN = 64;
 static const int MAX_STRING_VALUE = 512;
+static const uint32_t RECONNECT_MIN_MS = 5000;
+static const uint32_t RECONNECT_MAX_MS = 60000;
 static const unsigned long CONFIRM_DEADLINE_MS = 15UL * 60 * 1000;
 
 #if defined(ESP32)
@@ -122,8 +127,8 @@ void NodrixClass::begin(const char* host, const char* token, uint16_t port) {
   // ESP8266 WebSocket TLS is unvalidated; fingerprint/CA pinning is HTTP-only there.
   _ws.beginSSL(_host.c_str(), _port, _wsPath.c_str());
 #endif
-  _ws.setReconnectInterval(5000);
-  _ws.enableHeartbeat(15000, 3000, 2);
+  _ws.setReconnectInterval(RECONNECT_MIN_MS);
+  _ws.enableHeartbeat(30000, 10000, 2);
 }
 
 void NodrixClass::beginHTTP(const char* ssid, const char* pass, const char* host,
@@ -161,42 +166,62 @@ void NodrixClass::connectWiFi() {
 
 void NodrixClass::run() {
   if (!_wsMode) return;
+  unsigned long start = millis();
   if (WiFi.status() != WL_CONNECTED) wifiMulti.run();
+  unsigned long before = millis();
   _ws.loop();
+  // The library reads one handshake line per loop() and gives up after 5s.
+  if (!_connected && millis() - before > 50) {
+    unsigned long t = millis();
+    while (!_connected && millis() - t < 1000) {
+      _ws.loop();
+      delay(1);
+    }
+  }
   flush();
   serviceUpdates();
+  if (millis() - start > 500) NODRIX_LOG("[nodrix] run() blocked %lu ms\n", millis() - start);
 }
 
 bool NodrixClass::poll() {
   if (_wsMode) return false;
   if (WiFi.status() != WL_CONNECTED) wifiMulti.run();
-  flush();
 
-  String body;
-  JsonDocument doc;
-  if (!httpGet("/v1/control", body) || deserializeJson(doc, body)) return false;
-  markRunningImageValid();
+  bool ok = false;
+  {
+    NODRIX_MAKE_TLS(client);
+    HTTPClient http;
+    http.setReuse(true);
 
-  JsonDocument ackDoc;
-  JsonArray ids = ackDoc["ids"].to<JsonArray>();
-  for (JsonObject c : doc["control"].as<JsonArray>()) {
-    const char* id = c["id"] | "";
-    const char* variable = c["variable"] | "";
-    if (variable[0]) {
-      dispatchControl(variable, c["value"]);
-      if (id[0]) ids.add(id);
+    postTelemetry(http, client);
+    String body;
+    JsonDocument doc;
+    if (request(http, client, "GET", "/v1/control", String(), &body) == 200 && !deserializeJson(doc, body)) {
+      ok = true;
+      markRunningImageValid();
+
+      JsonDocument ackDoc;
+      JsonArray ids = ackDoc["ids"].to<JsonArray>();
+      for (JsonObject c : doc["control"].as<JsonArray>()) {
+        const char* id = c["id"] | "";
+        const char* variable = c["variable"] | "";
+        if (variable[0]) {
+          dispatchControl(variable, c["value"]);
+          if (id[0]) ids.add(id);
+        }
+      }
+
+      postTelemetry(http, client);  // echoes staged by the handlers
+      if (ids.size() > 0) {
+        String ackBody;
+        serializeJson(ackDoc, ackBody);
+        request(http, client, "POST", "/v1/control/ack", ackBody, nullptr);
+      }
+      if (doc["ota"] | false) _otaDue = true;
     }
   }
-
-  flush();  // send echoes staged by the handlers
-  if (ids.size() > 0) {
-    String ackBody;
-    serializeJson(ackDoc, ackBody);
-    httpPost("/v1/control/ack", ackBody);
-  }
-  if (doc["ota"] | false) _otaDue = true;
   serviceUpdates();
-  return true;
+  return ok;
 }
 
 void NodrixClass::_handleWsEvent(WStype_t type, uint8_t* payload, size_t length) {
@@ -204,11 +229,15 @@ void NodrixClass::_handleWsEvent(WStype_t type, uint8_t* payload, size_t length)
     case WStype_CONNECTED:
       _connected = true;
       _everConnected = true;
+      _reconnectMs = RECONNECT_MIN_MS;
+      _ws.setReconnectInterval(_reconnectMs);
       NODRIX_LOG("[nodrix] connected\n");
       onConnected();
       break;
     case WStype_DISCONNECTED:
       _connected = false;
+      _reconnectMs = min(_reconnectMs * 2, RECONNECT_MAX_MS);
+      _ws.setReconnectInterval(_reconnectMs);
       // A socket that never once opened is a refused handshake, not a dropped
       // link — almost always a bad token or the wrong host.
       if (_everConnected) NODRIX_LOG("[nodrix] disconnected\n");
@@ -350,11 +379,9 @@ void NodrixClass::flush() {
     _ws.sendTXT(out);
     _tx.clear();
   } else {
-    JsonDocument env;
-    env["metrics"] = _tx.as<JsonObjectConst>();
-    String out;
-    serializeJson(env, out);
-    if (httpPost("/v1/telemetry", out) == 204) _tx.clear();
+    NODRIX_MAKE_TLS(client);
+    HTTPClient http;
+    postTelemetry(http, client);
   }
 }
 
@@ -392,40 +419,51 @@ void NodrixClass::logHttp(const char* method, const char* path, int code) {
   NODRIX_LOG("[nodrix] %s %s -> %d%s\n", method, path, code, why);
 }
 
-int NodrixClass::httpPost(const char* path, const String& body) {
-  NODRIX_MAKE_TLS(client);
-  HTTPClient http;
+template <typename C>
+int NodrixClass::request(HTTPClient& http, C& client, const char* method, const char* path,
+                         const String& body, String* out) {
   String url = "https://" + _host + ":" + String(_port) + path;
   if (!http.begin(client, url)) {
-    logHttp("POST", path, -1);
+    logHttp(method, path, -1);
     return -1;
-  }
-  http.addHeader("Authorization", "Bearer " + _token);
-  http.addHeader("Content-Type", "application/json");
-  http.addHeader("X-Nodrix-Device", deviceKey());
-  int code = http.POST(body);
-  http.end();
-  if (code != 204 && code != 200) logHttp("POST", path, code);
-  return code;
-}
-
-bool NodrixClass::httpGet(const char* path, String& out) {
-  NODRIX_MAKE_TLS(client);
-  HTTPClient http;
-  String url = "https://" + _host + ":" + String(_port) + path;
-  if (!http.begin(client, url)) {
-    logHttp("GET", path, -1);
-    return false;
   }
   http.addHeader("Authorization", "Bearer " + _token);
   http.addHeader("X-Nodrix-Device", deviceKey());
   if (_firmwareVersion) http.addHeader("X-Nodrix-Firmware", _firmwareVersion);
   http.addHeader("X-Nodrix-Chip", chipName());
-  int code = http.GET();
-  if (code == 200) out = http.getString();
+  int code;
+  if (strcmp(method, "GET") == 0) {
+    code = http.GET();
+  } else {
+    http.addHeader("Content-Type", "application/json");
+    code = http.POST(body);
+  }
+  if (code == 200 && out) *out = http.getString();
   http.end();
-  if (code != 200) logHttp("GET", path, code);
-  return code == 200;
+  if (code != 200 && code != 204) logHttp(method, path, code);
+  return code;
+}
+
+template <typename C>
+void NodrixClass::postTelemetry(HTTPClient& http, C& client) {
+  if (_tx.size() == 0) return;
+  JsonDocument env;
+  env["metrics"] = _tx.as<JsonObjectConst>();
+  String out;
+  serializeJson(env, out);
+  if (request(http, client, "POST", "/v1/telemetry", out, nullptr) == 204) _tx.clear();
+}
+
+int NodrixClass::httpPost(const char* path, const String& body) {
+  NODRIX_MAKE_TLS(client);
+  HTTPClient http;
+  return request(http, client, "POST", path, body, nullptr);
+}
+
+bool NodrixClass::httpGet(const char* path, String& out) {
+  NODRIX_MAKE_TLS(client);
+  HTTPClient http;
+  return request(http, client, "GET", path, String(), &out) == 200;
 }
 
 String NodrixClass::chipName() const {
