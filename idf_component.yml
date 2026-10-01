@@ -1,5 +1,5 @@
 version: "0.2.0"
-description: "Connect ESP32 hardware to Nodrix in a few lines — NODRIX_WRITE control handlers with typed values, one-call telemetry, WebSocket and HTTP transports, at-least-once delivery, and optional TLS pinning."
+description: "Connect ESP32 hardware to Nodrix in a few lines — NODRIX_WRITE control handlers with typed values, one-call telemetry, WebSocket and HTTP transports, at-least-once delivery, over-the-air updates, and optional TLS pinning."
 url: "https://nodrix.live/products/arduino-library"
 repository: "https://github.com/decoded-cipher/nodrix-sdk.git"
 documentation: "https://nodrix.live/products/arduino-library"

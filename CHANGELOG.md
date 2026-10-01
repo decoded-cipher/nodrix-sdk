@@ -1,18 +1,24 @@
 # Changelog
 
-## 0.2.0 — 2026-09-18
+## 0.2.0 — 2026-10-02
 
-- `setFirmwareVersion()` names the version a sketch is. Nodrix compares it
-  against the firmware assigned to the device, so it must match the string typed
-  when the image was uploaded. Without one, over-the-air updates are now skipped
-  with a message under `setDebug(true)` — previously the board downloaded an
-  update the cloud could never see land, and reinstalled it after every reboot.
-- The chip is reported on its own (`ESP.getChipModel()` on ESP32, `esp8266`
-  otherwise), so a board names itself in the dashboard without `setChip()`.
-- Dropped the `NODRIX_BUILD` build-id define, which only the browser build agent
-  set.
-- New `OtaUpdate` example: reports a version, updates itself, and can be asked
-  to check from a dashboard button.
+- Over-the-air updates. `setFirmwareVersion()` names the version a sketch is; it
+  must match the version the image was uploaded under. A board updates itself
+  when firmware is assigned to it: told over the socket, or through `poll()` in
+  HTTP mode, with a six-hourly check as a backstop. `checkForUpdate()` asks now.
+  Without a version, updates are skipped.
+- Updates are checked against the uploaded image's hash. On ESP32 a new image is
+  kept only once it reaches the cloud; one that resets first, or stays offline
+  for 15 minutes on a working network, rolls back. A rolled-back or impossible
+  update is reported and not offered again.
+- Boards identify themselves: a device key (the MAC, or `setDeviceKey()`), the
+  chip (`ESP.getChipModel()` on ESP32, or `setChip()`) and the firmware version.
+- New `OtaUpdate` example.
+- A sketch that blocks in `loop()`, such as a `delay()` blink, connects and stays
+  connected for blocks up to about 10 s. Reconnects back off from 5 s to 60 s.
+- `poll()` makes all its requests over one TLS connection. ESP32 TLS handshakes
+  give up after 15 s; ESP8266 resumes TLS sessions.
+- With `setDebug(true)`, a `run()` that blocks for over 500 ms is logged.
 
 ## 0.1.1 — 2026-09-16
 

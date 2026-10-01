@@ -1,8 +1,8 @@
 {
   "name": "Nodrix",
   "version": "0.2.0",
-  "description": "Nodrix device library for ESP32 and ESP8266. Hides WiFi, TLS, WebSocket/HTTP, JSON and the control/telemetry protocol behind a tiny API.",
-  "keywords": "nodrix, iot, esp32, esp8266, websocket, telemetry, home-automation",
+  "description": "Nodrix device library for ESP32 and ESP8266. Hides WiFi, TLS, WebSocket/HTTP, JSON, the control/telemetry protocol and over-the-air updates behind a tiny API.",
+  "keywords": "nodrix, iot, esp32, esp8266, websocket, telemetry, ota, home-automation",
   "repository": {
     "type": "git",
     "url": "https://github.com/decoded-cipher/nodrix-sdk.git"
