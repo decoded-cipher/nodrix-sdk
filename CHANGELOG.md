@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.1.2 — 2026-11-12
+
+- A certificate pin is never silently dropped. `setCACert()` now works on ESP8266
+  (HTTP and WebSocket) and `setFingerprint()` on the ESP8266 WebSocket. A pin that
+  can't be applied — a fingerprint on ESP32, or a malformed one — makes the
+  connection fail instead of falling back to an unvalidated one.
+- With `setDebug(true)`, `begin()` / `beginHTTP()` warn when certificates aren't
+  being validated, or when `setFingerprint()` is used on ESP32.
+
 ## 0.1.1 — 2026-09-16
 
 - Debug output now tells connection failures apart: failed HTTP requests log the
