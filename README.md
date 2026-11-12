@@ -132,8 +132,11 @@ Nodrix.event("door_opened");
 By default certificates are not validated — the simplest path to get running. To
 pin a certificate, call one before `begin()`:
 
-- `Nodrix.setCACert(pem)` — ESP32, WebSocket and HTTP.
-- `Nodrix.setFingerprint(fp)` — ESP8266 HTTP mode (SHA-1 fingerprint).
+- `Nodrix.setCACert(pem)` — ESP32 and ESP8266, WebSocket and HTTP.
+- `Nodrix.setFingerprint(fp)` — ESP8266, WebSocket and HTTP (SHA-1 fingerprint).
+
+A pin that can't be applied (a fingerprint on ESP32, or a malformed fingerprint)
+makes the connection fail rather than fall back to an unvalidated one.
 
 Pin the **root CA**, not the server (leaf) certificate — the leaf rotates every
 ~90 days, the root does not. Your host already serves its root as the last block
@@ -149,9 +152,8 @@ For Cloudflare `*.workers.dev` that returns GTS Root R4 — the one shipped in t
 `SensorTelemetry` example. A custom domain returns its own root; the command is
 the same.
 
-On ESP8266 the WebSocket transport is always unvalidated; use ESP32 for a pinned
-WebSocket, or ESP8266 HTTP mode with a fingerprint — but a fingerprint pins the
-leaf, so it must be refreshed on each rotation; prefer a root CA where you can.
+A fingerprint pins the leaf certificate, so it must be refreshed on each rotation;
+prefer a root CA where you can.
 
 ## API reference
 
@@ -170,8 +172,8 @@ leaf, so it must be refreshed on each rotation; prefer a root CA where you can.
 | `connected()` | Whether the link is up |
 | `onConnect(cb)` / `onDisconnect(cb)` | Connection callbacks |
 | `setInsecure()` | Skip certificate validation (default) |
-| `setCACert(pem)` | Pin a root CA (ESP32) |
-| `setFingerprint(fp)` | Pin a SHA-1 fingerprint (ESP8266 HTTP) |
+| `setCACert(pem)` | Pin a root CA |
+| `setFingerprint(fp)` | Pin a SHA-1 fingerprint (ESP8266) |
 | `setDebug(on)` | Log connection and protocol activity to Serial |
 | `NODRIX_WRITE("var") { ... }` | Handle a cloud write; `value` is in scope |
 

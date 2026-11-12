@@ -5,9 +5,11 @@
   #include <WiFiClientSecure.h>
   #include <HTTPClient.h>
   #include <WiFiMulti.h>
+  // A pin that can't be applied (fingerprint over HTTP) leaves the client with no
+  // trust config, so the handshake fails closed instead of going unverified.
   #define NODRIX_MAKE_TLS(client)                                   \
     WiFiClientSecure client;                                        \
-    do { if (_ca) client.setCACert(_ca); else client.setInsecure(); } while (0)
+    do { if (_ca) client.setCACert(_ca); else if (!_fingerprint) client.setInsecure(); } while (0)
 #elif defined(ESP8266)
   #include <ESP8266WiFi.h>
   #include <WiFiClientSecureBearSSL.h>
@@ -15,7 +17,11 @@
   #include <ESP8266WiFiMulti.h>
   #define NODRIX_MAKE_TLS(client)                                   \
     BearSSL::WiFiClientSecure client;                               \
-    do { if (_fingerprint) client.setFingerprint(_fingerprint); else client.setInsecure(); } while (0)
+    do {                                                            \
+      if (_fingerprint) client.setFingerprint(_fingerprint);        \
+      else if (_ca) client.setTrustAnchors(trustAnchors(_ca));      \
+      else client.setInsecure();                                    \
+    } while (0)
 #else
   #error "Nodrix supports ESP32 and ESP8266"
 #endif
@@ -24,6 +30,25 @@
 static WiFiMulti wifiMulti;
 #elif defined(ESP8266)
 static ESP8266WiFiMulti wifiMulti;
+
+static BearSSL::X509List* trustAnchors(const char* pem) {
+  static BearSSL::X509List* list = nullptr;
+  if (!list) list = new BearSSL::X509List(pem);
+  return list;
+}
+
+// "AA:BB:..." or "AABB..." -> 20 bytes; false if malformed.
+static bool parseFingerprint(const char* s, uint8_t out[20]) {
+  int n = 0;
+  while (*s && n < 20) {
+    if (*s == ':' || *s == ' ') { s++; continue; }
+    char hex[3] = {s[0], s[1], 0};
+    if (!isxdigit((unsigned char)hex[0]) || !isxdigit((unsigned char)hex[1])) return false;
+    out[n++] = (uint8_t)strtoul(hex, nullptr, 16);
+    s += 2;
+  }
+  return n == 20;
+}
 #endif
 
 #define NODRIX_LOG(...) do { if (_debug) Serial.printf(__VA_ARGS__); } while (0)
@@ -102,8 +127,19 @@ void NodrixClass::begin(const char* host, const char* token, uint16_t port) {
   else if (_fingerprint) _ws.beginSSL(_host.c_str(), _port, _wsPath.c_str(), _fingerprint);
   else _ws.beginSSL(_host.c_str(), _port, _wsPath.c_str());
 #else
-  // ESP8266 WebSocket TLS is unvalidated; fingerprint/CA pinning is HTTP-only there.
-  _ws.beginSSL(_host.c_str(), _port, _wsPath.c_str());
+  static uint8_t fp[20];
+  if (_ca) {
+    _ws.beginSslWithCA(_host.c_str(), _port, _wsPath.c_str(), _ca);
+  } else if (_fingerprint) {
+    // A malformed fingerprint must not fall back to an unverified connection.
+    if (!parseFingerprint(_fingerprint, fp)) {
+      NODRIX_LOG("[nodrix] invalid fingerprint; not connecting\n");
+      return;
+    }
+    _ws.beginSSL(_host.c_str(), _port, _wsPath.c_str(), fp);
+  } else {
+    _ws.beginSSL(_host.c_str(), _port, _wsPath.c_str());
+  }
 #endif
   _ws.setReconnectInterval(5000);
   _ws.enableHeartbeat(15000, 3000, 2);
