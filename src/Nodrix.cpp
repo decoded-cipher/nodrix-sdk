@@ -123,6 +123,7 @@ void NodrixClass::begin(const char* host, const char* token, uint16_t port) {
 
   _ws.onEvent([](WStype_t t, uint8_t* p, size_t l) { Nodrix._handleWsEvent(t, p, l); });
 #if defined(ESP32)
+  if (!_ca && _fingerprint) NODRIX_LOG("[nodrix] setFingerprint() is not supported on ESP32; use setCACert()\n");
   if (_ca) _ws.beginSslWithCA(_host.c_str(), _port, _wsPath.c_str(), _ca);
   else if (_fingerprint) _ws.beginSSL(_host.c_str(), _port, _wsPath.c_str(), _fingerprint);
   else _ws.beginSSL(_host.c_str(), _port, _wsPath.c_str());
@@ -141,6 +142,7 @@ void NodrixClass::begin(const char* host, const char* token, uint16_t port) {
     _ws.beginSSL(_host.c_str(), _port, _wsPath.c_str());
   }
 #endif
+  if (!_ca && !_fingerprint) NODRIX_LOG("[nodrix] TLS certificate not validated; pin with setCACert()/setFingerprint()\n");
   _ws.setReconnectInterval(5000);
   _ws.enableHeartbeat(15000, 3000, 2);
 }
@@ -156,6 +158,10 @@ void NodrixClass::beginHTTP(const char* host, const char* token, uint16_t port) 
   _token = token;
   _port = port;
   _wsMode = false;
+  if (!_ca && !_fingerprint) NODRIX_LOG("[nodrix] TLS certificate not validated; pin with setCACert()/setFingerprint()\n");
+#if defined(ESP32)
+  if (!_ca && _fingerprint) NODRIX_LOG("[nodrix] setFingerprint() is not supported on ESP32; use setCACert()\n");
+#endif
 
   connectWiFi();
   _connected = (WiFi.status() == WL_CONNECTED);
